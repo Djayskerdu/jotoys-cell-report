@@ -21,6 +21,15 @@ function toBool(v) {
   return v === true || v === "TRUE" || v === "true" || v === 1;
 }
 
+// ── Count distinct lifegroups (unique day+time combos) ────────────────────────
+function countLifegroups(list) {
+  return new Set(list.map(m => {
+    const d = (m.ScheduleDay||"").trim();
+    const t = (m.ScheduleTime||"").trim();
+    return d||t ? `${d}|${t}` : `__nosch__${m.ID}`;
+  })).size;
+}
+
 async function apiGet() {
   const res  = await fetch(SCRIPT_URL, { method:"GET" });
   const json = await res.json();
@@ -321,7 +330,6 @@ function ConfirmDelete({ open, name, onCancel, onConfirm, deleting }) {
 // ── Format time for display ───────────────────────────────────────────────────
 function formatTime(t) {
   if (!t) return "";
-  // t is "HH:MM" from <input type="time">
   const [h, m] = t.split(":").map(Number);
   const ampm = h >= 12 ? "PM" : "AM";
   const hr = h % 12 || 12;
@@ -354,7 +362,6 @@ function MemberRow({ member, onEdit, onDelete }) {
 
 // ── Grouped member list by day + time ────────────────────────────────────────
 function GroupedMembers({ members, onEdit, onDelete, onAdd }) {
-  // Group by "Day|Time" key
   const groups = {};
   members.forEach(m => {
     const day  = (m.ScheduleDay||"").trim()  || "";
@@ -372,7 +379,6 @@ function GroupedMembers({ members, onEdit, onDelete, onAdd }) {
     if (ai !== bi) {
       if (ai === -1) return 1; if (bi === -1) return -1; return ai - bi;
     }
-    // same day: sort by time
     return (ga.time||"").localeCompare(gb.time||"");
   });
 
@@ -411,24 +417,18 @@ function GroupedMembers({ members, onEdit, onDelete, onAdd }) {
   );
 }
 
+// ── Helper: lifegroup count label ─────────────────────────────────────────────
+function lgLabel(n) {
+  return `${n} lifegroup${n !== 1 ? "s" : ""}`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SCREENS
 // ─────────────────────────────────────────────────────────────────────────────
 
 function HomeScreen({ members, leaders, loading, error, onRetry, onEnter }) {
-  // leaders = members with no ParentID (root-level)
-  const total  = members.filter(m => m.ParentID).length; // non-root members
-  const boys   = members.filter(m=>m.Gender==="Boys" && !m.ParentID).length; // root boys leaders
-  const girls  = members.filter(m=>m.Gender==="Girls" && !m.ParentID).length;
   const allNonRoot = members.filter(m => m.ParentID);
   const closed = allNonRoot.filter(m=>m.Status==="Close Cell").length;
-
-  // Count all tracked disciples (non-root members)
-  const boysTracked  = allNonRoot.filter(m => {
-    // find their root ancestor's gender
-    const parent = members.find(x => String(x.ID) === String(m.ParentID));
-    return parent && (parent.Gender === "Boys" || members.find(x=>String(x.ID)===String(parent.ParentID))?.Gender === "Boys");
-  }).length;
 
   return (
     <div className="home-wrap">
@@ -474,7 +474,6 @@ function HomeScreen({ members, leaders, loading, error, onRetry, onEnter }) {
 }
 
 function GenderScreen({ gender, leaders, members, loading, goHome, onPickLeader, onAddLeader }) {
-  // leaders here = root-level members of this gender (ParentID is empty)
   const list = leaders.filter(l=>l.Gender===gender);
   const acc  = gender==="Boys"?"acc-boys":"acc-girls";
   return (
@@ -498,9 +497,11 @@ function GenderScreen({ gender, leaders, members, loading, goHome, onPickLeader,
         <div className="card-grid">
           {list.map(l=>{
             const mine  = members.filter(m=>String(m.ParentID)===String(l.ID));
-            const open  = mine.filter(m=>(m.Status||"Open Cell")==="Open Cell").length;
-            const close = mine.filter(m=>m.Status==="Close Cell").length;
-            // unique schedule day+time combos
+            const openList  = mine.filter(m=>(m.Status||"Open Cell")==="Open Cell");
+            const closeList = mine.filter(m=>m.Status==="Close Cell");
+            // Count lifegroups (unique day+time combos) for pills
+            const openLG  = countLifegroups(openList);
+            const closeLG = countLifegroups(closeList);
             const schedules = [...new Map(mine.map(m => {
               const d = (m.ScheduleDay||"").trim();
               const t = (m.ScheduleTime||"").trim();
@@ -511,8 +512,8 @@ function GenderScreen({ gender, leaders, members, loading, goHome, onPickLeader,
                 <span className="lc-tag">Lifegroup Leader</span>
                 <span className="lc-name">{l.Name}</span>
                 <div className="lc-counts">
-                  <span className="lc-pill lc-open">{open} Open Cell</span>
-                  <span className="lc-pill lc-close">{close} Close Cell</span>
+                  <span className="lc-pill lc-open">{openLG} Open Cell</span>
+                  <span className="lc-pill lc-close">{closeLG} Close Cell</span>
                 </div>
                 {schedules.length>0 && (
                   <div className="lc-days">
@@ -557,7 +558,7 @@ function LeaderScreen({ gender, leader, members, goHome, goGender, onPickCell })
       <div className="cell-split">
         <button className="cell-card cell-open" onClick={()=>onPickCell("Open Cell")}>
           <div className="cc-top">
-            <span className="cc-count">{open.length}</span>
+            <span className="cc-count">{countLifegroups(open)}</span>
             <span className="cc-label">Open Cell</span>
           </div>
           {getSchedules(open).length>0 && (
@@ -575,7 +576,7 @@ function LeaderScreen({ gender, leader, members, goHome, goGender, onPickCell })
         </button>
         <button className="cell-card cell-close" onClick={()=>onPickCell("Close Cell")}>
           <div className="cc-top">
-            <span className="cc-count">{close.length}</span>
+            <span className="cc-count">{countLifegroups(close)}</span>
             <span className="cc-label">Close Cell</span>
           </div>
           {getSchedules(close).length>0 && (
@@ -640,7 +641,6 @@ function CloseCellScreen({ gender, leader, members, loading, goHome, goGender, g
     && m.Status==="Close Cell"
   );
 
-  // Group by day+time
   const groups = {};
   list.forEach(m=>{
     const day=(m.ScheduleDay||"").trim(), time=(m.ScheduleTime||"").trim();
@@ -701,6 +701,7 @@ function CloseCellScreen({ gender, leader, members, loading, goHome, goGender, g
                 <div className="subldr-list">
                   {grpMembers.map(m=>{
                     const ownMembers=members.filter(x=>String(x.ParentID)===String(m.ID));
+                    const ownLG = countLifegroups(ownMembers);
                     return (
                       <div key={m.ID} className="subldr-row">
                         <button className="subldr-main" onClick={()=>onPickSubLeader(m)}>
@@ -712,7 +713,7 @@ function CloseCellScreen({ gender, leader, members, loading, goHome, goGender, g
                           </div>
                           <div className="subldr-meta">
                             <StatusBadge status={m.LifegroupStatus}/>
-                            <span className="subldr-count">{ownMembers.length} members</span>
+                            <span className="subldr-count">{lgLabel(ownLG)}</span>
                             <ChevronRight size={15} style={{color:"var(--faint)"}}/>
                           </div>
                         </button>
@@ -777,7 +778,7 @@ function SubLeaderScreen({ gender, leader, subLeader, members, goHome, goGender,
       <div className="cell-split">
         <button className="cell-card cell-open" onClick={()=>onPickCell("Open Cell")}>
           <div className="cc-top">
-            <span className="cc-count">{open.length}</span>
+            <span className="cc-count">{countLifegroups(open)}</span>
             <span className="cc-label">Open Cell</span>
           </div>
           {getSchedules(open).length>0 && (
@@ -795,7 +796,7 @@ function SubLeaderScreen({ gender, leader, subLeader, members, goHome, goGender,
         </button>
         <button className="cell-card cell-close" onClick={()=>onPickCell("Close Cell")}>
           <div className="cc-top">
-            <span className="cc-count">{close.length}</span>
+            <span className="cc-count">{countLifegroups(close)}</span>
             <span className="cc-label">Close Cell</span>
           </div>
           {getSchedules(close).length>0 && (
@@ -924,6 +925,7 @@ function SubLeaderCloseScreen({ gender, leader, subLeader, members, loading, goH
                 <div className="subldr-list">
                   {grpMembers.map(m=>{
                     const ownMembers=members.filter(x=>String(x.ParentID)===String(m.ID));
+                    const ownLG = countLifegroups(ownMembers);
                     return (
                       <div key={m.ID} className="subldr-row">
                         <button className="subldr-main" onClick={()=>onPickDeepLeader(m)}>
@@ -935,7 +937,7 @@ function SubLeaderCloseScreen({ gender, leader, subLeader, members, loading, goH
                           </div>
                           <div className="subldr-meta">
                             <StatusBadge status={m.LifegroupStatus}/>
-                            <span className="subldr-count">{ownMembers.length} members</span>
+                            <span className="subldr-count">{lgLabel(ownLG)}</span>
                             <ChevronRight size={15} style={{color:"var(--faint)"}}/>
                           </div>
                         </button>
@@ -975,14 +977,12 @@ export default function App() {
   const [ldrModal,  setLdrModal]  = useState(false);
   const [savingLdr, setSavingLdr] = useState(false);
 
-  // ── FIX: leaders are root-level members (ParentID is blank/null) ──────────
   const leaders = members.filter(m => !m.ParentID || String(m.ParentID).trim() === "");
 
   const load = useCallback(async()=>{
     setLoading(true); setError("");
     try {
       const data = await apiGet();
-      // data.members contains ALL rows (roots + children)
       setMembers(data.members || []);
     } catch { setError("Couldn't load from the sheet. Check connection and try again."); }
     finally  { setLoading(false); }
@@ -1061,7 +1061,6 @@ export default function App() {
     setSavingLdr(true);
     try {
       const res = await apiPost({action:"createRoot",member:form});
-      // Add as a root member (no ParentID)
       setMembers(prev=>[...prev,{...form,ID:res.id,ParentID:"",Status:"Close Cell",LifegroupStatus:"Active"}]);
       setLdrModal(false);
     } catch { setError("Couldn't add leader. Try again."); }
