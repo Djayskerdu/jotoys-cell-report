@@ -89,7 +89,6 @@ function Pathway({ member, size="md" }) {
   );
 }
 
-// ── TrackList — pill/chip version of Pathway, used in compact member rows ──
 function TrackList({ member }) {
   const done = TRACKS.filter(t => toBool(member[t.key]));
   if (done.length === 0) {
@@ -148,8 +147,8 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
   });
 
   const [form, setForm] = useState(blank());
-  const [name, setName]   = useState("");   // single name, used when editing
-  const [names, setNames] = useState([""]); // multiple names, used when adding
+  const [name, setName]   = useState("");
+  const [names, setNames] = useState([""]);
   const [dayMode, setDayMode] = useState("pick");
 
   useEffect(() => {
@@ -533,7 +532,13 @@ function HomeScreen({ members, leaders, loading, error, onRetry, onEnter }) {
 }
 
 function GenderScreen({ gender, leaders, members, loading, goHome, onPickLeader, onAddLeader }) {
-  const list = leaders.filter(l=>l.Gender===gender);
+  const list = leaders
+    .filter(l=>l.Gender===gender)
+    .sort((a,b)=>{
+      const ca = members.filter(m=>String(m.ParentID)===String(a.ID)&&m.Status==="Close Cell").length;
+      const cb = members.filter(m=>String(m.ParentID)===String(b.ID)&&m.Status==="Close Cell").length;
+      return cb - ca;
+    });
   const acc  = gender==="Boys"?"acc-boys":"acc-girls";
   const networkLeader = NETWORK_LEADERS[gender] || gender;
   return (
@@ -663,9 +668,20 @@ function OpenCellScreen({ gender, leader, members, loading, goHome, goGender, go
   );
 }
 
+// ─── CLOSE CELL SCREEN ───────────────────────────────────────────────────────
+// Sorted by number of own members DESC so the busiest leader shows first.
 function CloseCellScreen({ gender, leader, members, loading, goHome, goGender, goLeader, onAdd, onEdit, onDelete, onPickSubLeader }) {
   const acc  = gender==="Boys"?"acc-boys":"acc-girls";
-  const list = members.filter(m=>String(m.ParentID)===String(leader.ID)&&m.Status==="Close Cell");
+
+  // Sort Close Cell leaders by their own member count descending
+  const list = members
+    .filter(m=>String(m.ParentID)===String(leader.ID)&&m.Status==="Close Cell")
+    .sort((a,b)=>{
+      const ca = members.filter(x=>String(x.ParentID)===String(a.ID)).length;
+      const cb = members.filter(x=>String(x.ParentID)===String(b.ID)).length;
+      return cb - ca;
+    });
+
   const groups={};
   list.forEach(m=>{
     const day=(m.ScheduleDay||"").trim(), time=(m.ScheduleTime||"").trim();
@@ -823,9 +839,20 @@ function SubLeaderOpenScreen({ gender, leader, subLeader, members, loading, goHo
   );
 }
 
+// ─── SUB-LEADER CLOSE CELL SCREEN ────────────────────────────────────────────
+// Also sorted by member count DESC.
 function SubLeaderCloseScreen({ gender, leader, subLeader, members, loading, goHome, goGender, goLeader, goCloseCell, goSubLeader, onAdd, onEdit, onDelete, onPickDeepLeader }) {
   const acc  = gender==="Boys"?"acc-boys":"acc-girls";
-  const list = members.filter(m=>String(m.ParentID)===String(subLeader.ID)&&m.Status==="Close Cell");
+
+  // Sort by own member count descending
+  const list = members
+    .filter(m=>String(m.ParentID)===String(subLeader.ID)&&m.Status==="Close Cell")
+    .sort((a,b)=>{
+      const ca = members.filter(x=>String(x.ParentID)===String(a.ID)).length;
+      const cb = members.filter(x=>String(x.ParentID)===String(b.ID)).length;
+      return cb - ca;
+    });
+
   const groups={};
   list.forEach(m=>{
     const day=(m.ScheduleDay||"").trim(),time=(m.ScheduleTime||"").trim();
@@ -955,7 +982,6 @@ export default function App() {
         await apiPost({action:"updateMember",id:editing.ID,member:form});
         setMembers(prev=>prev.map(m=>String(m.ID)===String(editing.ID)?{...m,...form}:m));
       } else if (form.Names) {
-        // Bulk add: same shared fields, one createMember call per name.
         const { Names, ...shared } = form;
         const created = [];
         for (const nm of Names) {
