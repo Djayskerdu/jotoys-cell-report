@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   Users, UserCircle2, Plus, X, Pencil, Trash2, MapPin,
   Loader2, RefreshCw, AlertCircle, ChevronRight, UserPlus,
-  Home, Circle, Calendar, Clock, FileText
+  Home, Circle, Calendar, Clock, FileText, ArrowUpRight
 } from "lucide-react";
 
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxQ0Lgp_NhBJgWZHbxA5q4Php-F5VaqMrfw270PBDHc-65fBmg-pOkig5m32PQYyTutig/exec";
@@ -18,6 +18,7 @@ const TRACKS = [
   { key:"SOL2",        label:"SOL 2"          },
   { key:"REENCOUNTER", label:"Re-Encounter"   },
   { key:"SOL3",        label:"SOL 3"          },
+  { key:"LGLEADER",    label:"LG Leader"      },
 ];
 
 const NETWORK_LEADERS = {
@@ -27,6 +28,14 @@ const NETWORK_LEADERS = {
 
 function toBool(v) {
   return v === true || v === "TRUE" || v === "true" || v === 1;
+}
+
+function trackCount(member) {
+  return TRACKS.filter(t => toBool(member[t.key])).length;
+}
+
+function isLGLeader(member) {
+  return toBool(member.LGLEADER);
 }
 
 function countLifegroups(list) {
@@ -55,40 +64,6 @@ async function apiPost(body) {
   return json;
 }
 
-function Pathway({ member, size="md" }) {
-  const d   = size==="sm" ? { r:4, gap:16, sw:1.5 } : { r:6, gap:28, sw:2 };
-  const ok  = TRACKS.map(t => toBool(member[t.key]));
-  const W   = d.gap*(TRACKS.length-1)+d.r*2+4;
-  const H   = d.r*2+(size==="sm"?10:24);
-  const cy  = d.r+(size==="sm"?5:12);
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H}>
-      {TRACKS.map((_,i) => {
-        if (!i) return null;
-        const x1=d.r+2+d.gap*(i-1), x2=d.r+2+d.gap*i;
-        return <line key={i} x1={x1} y1={cy} x2={x2} y2={cy}
-          stroke={ok[i-1]&&ok[i]?"#C99A4B":"#E4DDCC"} strokeWidth={d.sw}/>;
-      })}
-      {TRACKS.map((t,i) => {
-        const cx=d.r+2+d.gap*i, done=ok[i];
-        return (
-          <g key={t.key}>
-            <circle cx={cx} cy={cy} r={d.r}
-              fill={done?"#C99A4B":"#FAF6EE"}
-              stroke={done?"#C99A4B":"#9C9485"} strokeWidth={d.sw}/>
-            {done && <path
-              d={`M${cx-d.r*.45} ${cy} l${d.r*.4} ${d.r*.4} l${d.r*.65} -${d.r*.75}`}
-              stroke="#FAF6EE" strokeWidth={d.sw} fill="none"
-              strokeLinecap="round" strokeLinejoin="round"/>}
-            {size!=="sm" && <text x={cx} y={H-2} textAnchor="middle"
-              style={{fontSize:6,fill:"#9C9485"}}>{t.label}</text>}
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
 function TrackList({ member }) {
   const done = TRACKS.filter(t => toBool(member[t.key]));
   if (done.length === 0) {
@@ -97,7 +72,7 @@ function TrackList({ member }) {
   return (
     <div className="track-pills">
       {done.map(t => (
-        <span key={t.key} className="track-pill">{t.label}</span>
+        <span key={t.key} className={`track-pill${t.key==="LGLEADER"?" track-pill-lgl":""}`}>{t.label}</span>
       ))}
     </div>
   );
@@ -135,6 +110,57 @@ function NotesBadge({ notes }) {
   );
 }
 
+function LGLeaderBadge() {
+  return (
+    <span className="badge badge-lgl">
+      <Users size={9}/>LG Leader
+    </span>
+  );
+}
+
+// ── Proceed to Close Cell confirmation modal ─────────────────────────
+function ProceedToCloseCellModal({ open, member, membersUnder, onCancel, onConfirm, processing }) {
+  if (!open || !member) return null;
+  const openUnder = membersUnder.filter(m=>(m.Status||"Open Cell")==="Open Cell");
+  return (
+    <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget)onCancel();}}>
+      <div className="modal modal-sm">
+        <div className="modal-head">
+          <h2>Proceed to Close Cell?</h2>
+          <button className="icon-btn" onClick={onCancel}><X size={18}/></button>
+        </div>
+        <div className="modal-body">
+          <p className="confirm-txt">
+            <strong>{member.Name}</strong> will be seeded up from Open Cell to <strong>Close Cell</strong>.
+          </p>
+          {openUnder.length > 0 && (
+            <div className="proceed-info">
+              <p className="proceed-info-title">Their {openUnder.length} open cell member{openUnder.length!==1?"s":""} will carry over:</p>
+              <div className="proceed-member-list">
+                {openUnder.slice(0,8).map(m=>(
+                  <span key={m.ID} className="proceed-member-chip">{m.Name}</span>
+                ))}
+                {openUnder.length>8&&<span className="proceed-member-chip proceed-more">+{openUnder.length-8} more</span>}
+              </div>
+              <p className="hint" style={{marginTop:6}}>Their ParentID stays the same — no re-entry needed.</p>
+            </div>
+          )}
+          {openUnder.length === 0 && (
+            <p className="hint">They have no open cell members yet. They will be moved to Close Cell.</p>
+          )}
+          <div className="modal-foot">
+            <button className="btn-ghost" onClick={onCancel}>Cancel</button>
+            <button className="btn-seed" onClick={onConfirm} disabled={processing}>
+              {processing?<Loader2 size={15} className="spin"/>:<ArrowUpRight size={14}/>}
+              Seed Up to Close Cell
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus, saving, existingDays=[] }) {
   const blank = () => ({
     LifegroupLocation:"", ScheduleDay:"", ScheduleTime:"",
@@ -144,6 +170,7 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
     ENCOUNTER:"FALSE", WATERBAPTISM:"FALSE",
     SOL1:"FALSE", SOL2:"FALSE",
     REENCOUNTER:"FALSE", SOL3:"FALSE",
+    LGLEADER:"FALSE",
   });
 
   const [form, setForm] = useState(blank());
@@ -169,6 +196,7 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
         SOL2:             toBool(initial.SOL2)         ?"TRUE":"FALSE",
         REENCOUNTER:      toBool(initial.REENCOUNTER)  ?"TRUE":"FALSE",
         SOL3:             toBool(initial.SOL3)         ?"TRUE":"FALSE",
+        LGLEADER:         toBool(initial.LGLEADER)     ?"TRUE":"FALSE",
       });
       setName(initial.Name||"");
       setDayMode("type");
@@ -186,6 +214,10 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
   const setNameAt = (i,v) => setNames(prev => prev.map((n,idx)=>idx===i?v:n));
   const addNameRow = () => setNames(prev => [...prev, ""]);
   const removeNameAt = (i) => setNames(prev => prev.filter((_,idx)=>idx!==i));
+
+  // Split tracks: regular vs LG Leader
+  const regularTracks = TRACKS.filter(t => t.key !== "LGLEADER");
+  const lgLeaderTrack = TRACKS.find(t => t.key === "LGLEADER");
 
   return (
     <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
@@ -303,7 +335,7 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
           <fieldset className="field">
             <span>Track progress</span>
             <div className="track-row">
-              {TRACKS.map(t=>{
+              {regularTracks.map(t=>{
                 const on=form[t.key]==="TRUE";
                 return (
                   <label key={t.key} className={on?"chip chip-on":"chip"}>
@@ -313,6 +345,24 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
                   </label>
                 );
               })}
+            </div>
+            {/* LG Leader track — special section */}
+            <div className="lgl-track-section">
+              <div className="lgl-track-divider">
+                <span>Leadership Track</span>
+              </div>
+              {(() => {
+                const t = lgLeaderTrack;
+                const on = form[t.key] === "TRUE";
+                return (
+                  <label className={on?"chip chip-on chip-lgl":"chip chip-lgl"}>
+                    <input type="checkbox" checked={on}
+                      onChange={e=>set(t.key,e.target.checked?"TRUE":"FALSE")}/>
+                    <Users size={13}/> {t.label}
+                  </label>
+                );
+              })()}
+              <p className="hint">Check if this member handles their own lifegroup even while still in Open Cell.</p>
             </div>
           </fieldset>
 
@@ -405,14 +455,22 @@ function formatTime(t) {
   return `${hr}:${String(m).padStart(2,"0")} ${ampm}`;
 }
 
-function MemberRow({ member, onEdit, onDelete }) {
+// ── Member row — now shows LG Leader badge + "View Cell" link if applicable
+function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceedToClose, rank }) {
   const isClose = member.Status === "Close Cell";
+  const hasLGL = isLGLeader(member);
+  const ownOpenMembers = allMembers.filter(m =>
+    String(m.ParentID) === String(member.ID) && (m.Status||"Open Cell") === "Open Cell"
+  );
+
   return (
-    <div className={`member-row${isClose?" member-row-close":""}`}>
+    <div className={`member-row${isClose?" member-row-close":""}${hasLGL?" member-row-lgl":""}`}>
+      <div className="member-rank">{rank}</div>
       <div className="member-main">
         <div className="member-name-line">
           <span className="member-name">{member.Name}</span>
           {isClose && <span className="badge badge-close">Close Cell</span>}
+          {hasLGL && <LGLeaderBadge/>}
           <StatusBadge status={member.LifegroupStatus}/>
           {member.Notes && <NotesBadge notes={member.Notes}/>}
           {member.LifegroupLocation && (
@@ -420,6 +478,20 @@ function MemberRow({ member, onEdit, onDelete }) {
           )}
         </div>
         <TrackList member={member}/>
+        {/* If LG Leader: show their open cell count + action buttons */}
+        {hasLGL && !isClose && (
+          <div className="lgl-action-row">
+            <button className="btn-view-cell" onClick={()=>onViewCell(member)}>
+              <Users size={12}/>
+              View Cell ({ownOpenMembers.length} member{ownOpenMembers.length!==1?"s":""})
+              <ChevronRight size={12}/>
+            </button>
+            <button className="btn-proceed-close" onClick={()=>onProceedToClose(member)}>
+              <ArrowUpRight size={12}/>
+              Proceed to Close Cell
+            </button>
+          </div>
+        )}
       </div>
       <div className="member-side">
         <button className="icon-btn" onClick={()=>onEdit(member)}><Pencil size={14}/></button>
@@ -429,7 +501,7 @@ function MemberRow({ member, onEdit, onDelete }) {
   );
 }
 
-function GroupedMembers({ members, onEdit, onDelete }) {
+function GroupedMembers({ members, allMembers, onEdit, onDelete, onViewCell, onProceedToClose }) {
   const groups = {};
   members.forEach(m => {
     const day  = (m.ScheduleDay||"").trim()  || "";
@@ -438,6 +510,11 @@ function GroupedMembers({ members, onEdit, onDelete }) {
     if (!groups[key]) groups[key] = { day, time, members: [] };
     groups[key].members.push(m);
   });
+
+  Object.values(groups).forEach(g => {
+    g.members.sort((a, b) => trackCount(b) - trackCount(a));
+  });
+
   const sorted = Object.keys(groups).sort((a, b) => {
     const ga = groups[a], gb = groups[b];
     if (!ga.day && !ga.time) return 1;
@@ -448,6 +525,7 @@ function GroupedMembers({ members, onEdit, onDelete }) {
     }
     return (ga.time||"").localeCompare(gb.time||"");
   });
+
   return (
     <div className="groups">
       {sorted.map(key => {
@@ -469,8 +547,10 @@ function GroupedMembers({ members, onEdit, onDelete }) {
               <span className="day-group-count">{list.length} {list.length===1?"member":"members"}</span>
             </div>
             <div className="member-list">
-              {list.map(m=>(
-                <MemberRow key={m.ID} member={m} onEdit={onEdit} onDelete={onDelete}/>
+              {list.map((m, i) => (
+                <MemberRow key={m.ID} member={m} allMembers={allMembers} rank={i+1}
+                  onEdit={onEdit} onDelete={onDelete}
+                  onViewCell={onViewCell} onProceedToClose={onProceedToClose}/>
               ))}
             </div>
           </div>
@@ -638,7 +718,8 @@ function LeaderScreen({ gender, leader, members, goHome, goGender, onPickCell })
   );
 }
 
-function OpenCellScreen({ gender, leader, members, loading, goHome, goGender, goLeader, onAdd, onEdit, onDelete }) {
+// ── Open Cell Screen — now with LG Leader support ────────────────────
+function OpenCellScreen({ gender, leader, members, loading, goHome, goGender, goLeader, onAdd, onEdit, onDelete, onViewLGLeaderCell, onProceedToClose }) {
   const acc  = gender==="Boys"?"acc-boys":"acc-girls";
   const list = members.filter(m=>String(m.ParentID)===String(leader.ID)&&(m.Status||"Open Cell")==="Open Cell");
   return (
@@ -650,7 +731,7 @@ function OpenCellScreen({ gender, leader, members, loading, goHome, goGender, go
         <div>
           <span className="eyebrow-sm">Open Cell · {leader.Name}</span>
           <h1>Members</h1>
-          <p className="sub">Tracking their SUYNL → SOL 3 journey.</p>
+          <p className="sub">Sorted by track progress — most advanced first.</p>
         </div>
         <button className="btn-primary" onClick={onAdd}><Plus size={15}/>Add member</button>
       </div>
@@ -662,18 +743,64 @@ function OpenCellScreen({ gender, leader, members, loading, goHome, goGender, go
           <button className="btn-primary" onClick={onAdd}><Plus size={15}/>Add member</button>
         </div>
       ) : (
-        <GroupedMembers members={list} onEdit={onEdit} onDelete={onDelete}/>
+        <GroupedMembers members={list} allMembers={members} onEdit={onEdit} onDelete={onDelete}
+          onViewCell={onViewLGLeaderCell} onProceedToClose={onProceedToClose}/>
       )}
     </div>
   );
 }
 
-// ─── CLOSE CELL SCREEN ───────────────────────────────────────────────────────
-// Sorted by number of own members DESC so the busiest leader shows first.
+// ── LG Leader Cell Screen — shows a member's own open cell (while still in Open Cell themselves) ──
+function LGLeaderCellScreen({ gender, leader, lglMember, members, loading, goHome, goGender, goLeader, goOpenCell, onAdd, onEdit, onDelete }) {
+  const acc  = gender==="Boys"?"acc-boys":"acc-girls";
+  // Only show Open Cell members of this LG Leader (no Close Cell since they haven't seeded up)
+  const list = members.filter(m=>String(m.ParentID)===String(lglMember.ID)&&(m.Status||"Open Cell")==="Open Cell");
+
+  return (
+    <div className={`screen ${acc}`}>
+      <Breadcrumb crumbs={[
+        {label:"Home",onClick:goHome},{label:gender,onClick:goGender},
+        {label:leader.Name,onClick:goLeader},{label:"Open Cell",onClick:goOpenCell},
+      ]} current={`${lglMember.Name}'s Cell`}/>
+      <div className="screen-head">
+        <div>
+          <span className="eyebrow-sm">LG Leader Cell · under {leader.Name}</span>
+          <h1>{lglMember.Name}'s Cell</h1>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4,flexWrap:"wrap"}}>
+            <LGLeaderBadge/>
+            <StatusBadge status={lglMember.LifegroupStatus}/>
+            {lglMember.LifegroupLocation&&(
+              <span className="sub" style={{display:"flex",alignItems:"center",gap:4}}>
+                <MapPin size={12}/>{lglMember.LifegroupLocation}
+              </span>
+            )}
+          </div>
+          <p className="sub" style={{marginTop:6}}>{list.length} open cell {list.length===1?"member":"members"}</p>
+        </div>
+        <button className="btn-primary" onClick={onAdd}><Plus size={15}/>Add member</button>
+      </div>
+      <div className="lgl-notice">
+        <Users size={14}/>
+        <span>This member handles their own lifegroup while still in Open Cell. Only their Open Cell members are shown here — Close Cell members will appear after seeding up.</span>
+      </div>
+      {loading ? <div className="empty"><Loader2 size={22} className="spin"/></div>
+      : list.length===0 ? (
+        <div className="empty">
+          <p className="empty-title">No cell members yet</p>
+          <p className="empty-sub">Add members under {lglMember.Name}.</p>
+          <button className="btn-primary" onClick={onAdd}><Plus size={15}/>Add member</button>
+        </div>
+      ) : (
+        <GroupedMembers members={list} allMembers={members} onEdit={onEdit} onDelete={onDelete}
+          onViewCell={()=>{}} onProceedToClose={()=>{}}/>
+      )}
+    </div>
+  );
+}
+
 function CloseCellScreen({ gender, leader, members, loading, goHome, goGender, goLeader, onAdd, onEdit, onDelete, onPickSubLeader }) {
   const acc  = gender==="Boys"?"acc-boys":"acc-girls";
 
-  // Sort Close Cell leaders by their own member count descending
   const list = members
     .filter(m=>String(m.ParentID)===String(leader.ID)&&m.Status==="Close Cell")
     .sort((a,b)=>{
@@ -793,10 +920,6 @@ function SubLeaderScreen({ gender, leader, subLeader, members, goHome, goGender,
           <p className="sub" style={{marginTop:6}}>{mine.length} {mine.length===1?"disciple":"disciples"} total</p>
         </div>
       </div>
-      <div className="subl-track-card">
-        <p className="subl-track-label">Discipleship track</p>
-        <Pathway member={subLeader} size="md"/>
-      </div>
       <div className="cell-split">
         <button className="cell-card cell-open" onClick={()=>onPickCell("Open Cell")}>
           <div className="cc-top"><span className="cc-count">{countLifegroups(open)}</span><span className="cc-label">Open Cell</span></div>
@@ -815,7 +938,7 @@ function SubLeaderScreen({ gender, leader, subLeader, members, goHome, goGender,
   );
 }
 
-function SubLeaderOpenScreen({ gender, leader, subLeader, members, loading, goHome, goGender, goLeader, goCloseCell, goSubLeader, onAdd, onEdit, onDelete }) {
+function SubLeaderOpenScreen({ gender, leader, subLeader, members, loading, goHome, goGender, goLeader, goCloseCell, goSubLeader, onAdd, onEdit, onDelete, onViewLGLeaderCell, onProceedToClose }) {
   const acc  = gender==="Boys"?"acc-boys":"acc-girls";
   const list = members.filter(m=>String(m.ParentID)===String(subLeader.ID)&&(m.Status||"Open Cell")==="Open Cell");
   return (
@@ -828,23 +951,21 @@ function SubLeaderOpenScreen({ gender, leader, subLeader, members, loading, goHo
         <div>
           <span className="eyebrow-sm">Open Cell · {subLeader.Name}</span>
           <h1>Members</h1>
-          <p className="sub">Tracking their SUYNL → SOL 3 journey.</p>
+          <p className="sub">Sorted by track progress — most advanced first.</p>
         </div>
         <button className="btn-primary" onClick={onAdd}><Plus size={15}/>Add member</button>
       </div>
       {loading?<div className="empty"><Loader2 size={22} className="spin"/></div>
       :list.length===0?(<div className="empty"><p className="empty-title">No open cell members yet</p><p className="empty-sub">Add a member under {subLeader.Name}.</p><button className="btn-primary" onClick={onAdd}><Plus size={15}/>Add member</button></div>)
-      :<GroupedMembers members={list} onEdit={onEdit} onDelete={onDelete}/>}
+      :<GroupedMembers members={list} allMembers={members} onEdit={onEdit} onDelete={onDelete}
+          onViewCell={onViewLGLeaderCell} onProceedToClose={onProceedToClose}/>}
     </div>
   );
 }
 
-// ─── SUB-LEADER CLOSE CELL SCREEN ────────────────────────────────────────────
-// Also sorted by member count DESC.
 function SubLeaderCloseScreen({ gender, leader, subLeader, members, loading, goHome, goGender, goLeader, goCloseCell, goSubLeader, onAdd, onEdit, onDelete, onPickDeepLeader }) {
   const acc  = gender==="Boys"?"acc-boys":"acc-girls";
 
-  // Sort by own member count descending
   const list = members
     .filter(m=>String(m.ParentID)===String(subLeader.ID)&&m.Status==="Close Cell")
     .sort((a,b)=>{
@@ -931,6 +1052,9 @@ export default function App() {
   const [deleting,  setDeleting]  = useState(false);
   const [ldrModal,  setLdrModal]  = useState(false);
   const [savingLdr, setSavingLdr] = useState(false);
+  // Proceed to Close Cell state
+  const [proceedTarget, setProceedTarget] = useState(null);
+  const [proceeding,    setProceeding]    = useState(false);
 
   const leaders = members.filter(m => !m.ParentID || String(m.ParentID).trim() === "");
 
@@ -951,10 +1075,13 @@ export default function App() {
   const goSubLeader = (g,l,sub) => setRoute({screen:"subleader",gender:g,leader:l,subLeader:sub});
   const goSubOpen   = (g,l,sub) => setRoute({screen:"subopen",gender:g,leader:l,subLeader:sub});
   const goSubClose  = (g,l,sub) => setRoute({screen:"subclose",gender:g,leader:l,subLeader:sub});
+  // LG Leader cell (open cell member with LG Leader track)
+  const goLGLeaderCell = (g,l,lglm,fromScreen) => setRoute({screen:"lglcell",gender:g,leader:l,lglMember:lglm,fromScreen});
 
   function currentParentId() {
     if (route.screen==="open"||route.screen==="close") return String(route.leader.ID);
     if (route.screen==="subleader"||route.screen==="subopen"||route.screen==="subclose") return String(route.subLeader.ID);
+    if (route.screen==="lglcell") return String(route.lglMember.ID);
     return "";
   }
   function currentDefaultStatus() {
@@ -962,6 +1089,7 @@ export default function App() {
     return "Open Cell";
   }
   function currentLeaderName() {
+    if (route.screen==="lglcell") return route.lglMember.Name;
     if (route.screen==="subopen"||route.screen==="subclose"||route.screen==="subleader") return route.subLeader.Name;
     if (route.screen==="open"||route.screen==="close") return route.leader.Name;
     return "";
@@ -1020,6 +1148,62 @@ export default function App() {
     finally  { setSavingLdr(false); }
   }
 
+  // ── Proceed to Close Cell handler ──────────────────────────────────
+  async function handleProceedToCloseCell() {
+    if (!proceedTarget) return;
+    setProceeding(true);
+    try {
+      // Update the member's Status to "Close Cell"
+      const updatedForm = {
+        Name:              proceedTarget.Name,
+        LifegroupLocation: proceedTarget.LifegroupLocation||"",
+        ScheduleDay:       proceedTarget.ScheduleDay||"",
+        ScheduleTime:      proceedTarget.ScheduleTime||"",
+        Status:            "Close Cell",
+        LifegroupStatus:   proceedTarget.LifegroupStatus||"Active",
+        Notes:             proceedTarget.Notes||"",
+        SUYNL:             toBool(proceedTarget.SUYNL)?"TRUE":"FALSE",
+        LIFECLASS:         toBool(proceedTarget.LIFECLASS)?"TRUE":"FALSE",
+        ENCOUNTER:         toBool(proceedTarget.ENCOUNTER)?"TRUE":"FALSE",
+        WATERBAPTISM:      toBool(proceedTarget.WATERBAPTISM)?"TRUE":"FALSE",
+        SOL1:              toBool(proceedTarget.SOL1)?"TRUE":"FALSE",
+        SOL2:              toBool(proceedTarget.SOL2)?"TRUE":"FALSE",
+        REENCOUNTER:       toBool(proceedTarget.REENCOUNTER)?"TRUE":"FALSE",
+        SOL3:              toBool(proceedTarget.SOL3)?"TRUE":"FALSE",
+        LGLEADER:          toBool(proceedTarget.LGLEADER)?"TRUE":"FALSE",
+      };
+      await apiPost({action:"updateMember", id:proceedTarget.ID, member:updatedForm});
+      // Update local state — just change Status, keep ParentID and all their members intact
+      setMembers(prev=>prev.map(m=>
+        String(m.ID)===String(proceedTarget.ID)
+          ? {...m, Status:"Close Cell"}
+          : m
+      ));
+      setProceedTarget(null);
+      // Navigate back to the open cell screen they came from
+      // so user can see the member has moved
+    } catch { setError("Couldn't proceed. Try again."); }
+    finally { setProceeding(false); }
+  }
+
+  // Handler for "View Cell" on LG Leader open cell members
+  function handleViewLGLeaderCell(lglMember) {
+    if (route.screen === "open") {
+      goLGLeaderCell(route.gender, route.leader, lglMember, "open");
+    } else if (route.screen === "subopen") {
+      goLGLeaderCell(route.gender, route.leader, lglMember, "subopen");
+    }
+  }
+
+  // Handler for "Proceed to Close Cell" button
+  function handleProceedToCloseClick(member) {
+    setProceedTarget(member);
+  }
+
+  const proceedMembersUnder = proceedTarget
+    ? members.filter(m=>String(m.ParentID)===String(proceedTarget.ID))
+    : [];
+
   return (
     <div className="shell">
       <style>{CSS}</style>
@@ -1041,16 +1225,25 @@ export default function App() {
         {route.screen==="home"&&<HomeScreen members={members} leaders={leaders} loading={loading} error={error} onRetry={load} onEnter={goGender}/>}
         {route.screen==="gender"&&<GenderScreen gender={route.gender} leaders={leaders} members={members} loading={loading} goHome={goHome} onPickLeader={l=>goLeader(route.gender,l)} onAddLeader={()=>setLdrModal(true)}/>}
         {route.screen==="leader"&&<LeaderScreen gender={route.gender} leader={route.leader} members={members} goHome={goHome} goGender={()=>goGender(route.gender)} onPickCell={cell=>cell==="Open Cell"?goOpenCell(route.gender,route.leader):goCloseCell(route.gender,route.leader)}/>}
-        {route.screen==="open"&&<OpenCellScreen gender={route.gender} leader={route.leader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)}/>}
+        {route.screen==="open"&&<OpenCellScreen gender={route.gender} leader={route.leader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onViewLGLeaderCell={handleViewLGLeaderCell} onProceedToClose={handleProceedToCloseClick}/>}
         {route.screen==="close"&&<CloseCellScreen gender={route.gender} leader={route.leader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onPickSubLeader={sub=>goSubLeader(route.gender,route.leader,sub)}/>}
         {route.screen==="subleader"&&<SubLeaderScreen gender={route.gender} leader={route.leader} subLeader={route.subLeader} members={members} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goCloseCell={()=>goCloseCell(route.gender,route.leader)} onPickCell={cell=>cell==="Open Cell"?goSubOpen(route.gender,route.leader,route.subLeader):goSubClose(route.gender,route.leader,route.subLeader)}/>}
-        {route.screen==="subopen"&&<SubLeaderOpenScreen gender={route.gender} leader={route.leader} subLeader={route.subLeader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goCloseCell={()=>goCloseCell(route.gender,route.leader)} goSubLeader={()=>goSubLeader(route.gender,route.leader,route.subLeader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)}/>}
+        {route.screen==="subopen"&&<SubLeaderOpenScreen gender={route.gender} leader={route.leader} subLeader={route.subLeader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goCloseCell={()=>goCloseCell(route.gender,route.leader)} goSubLeader={()=>goSubLeader(route.gender,route.leader,route.subLeader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onViewLGLeaderCell={handleViewLGLeaderCell} onProceedToClose={handleProceedToCloseClick}/>}
         {route.screen==="subclose"&&<SubLeaderCloseScreen gender={route.gender} leader={route.leader} subLeader={route.subLeader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goCloseCell={()=>goCloseCell(route.gender,route.leader)} goSubLeader={()=>goSubLeader(route.gender,route.leader,route.subLeader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onPickDeepLeader={deep=>setRoute({screen:"subleader",gender:route.gender,leader:route.leader,subLeader:deep})}/>}
+        {route.screen==="lglcell"&&<LGLeaderCellScreen gender={route.gender} leader={route.leader} lglMember={route.lglMember} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goOpenCell={()=>goOpenCell(route.gender,route.leader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)}/>}
       </main>
 
       <MemberModal open={modalOpen} onClose={()=>{if(!saving){setModalOpen(false);setEditing(null);}}} onSave={handleSaveMember} initial={editing} leaderName={currentLeaderName()} defaultStatus={currentDefaultStatus()} existingDays={currentExistingDays()} saving={saving}/>
       <LeaderModal open={ldrModal} onClose={()=>setLdrModal(false)} onSave={handleSaveLeader} gender={route.gender} saving={savingLdr}/>
       <ConfirmDelete open={!!delTarget} name={delTarget?.Name} onCancel={()=>setDelTarget(null)} onConfirm={handleDelete} deleting={deleting}/>
+      <ProceedToCloseCellModal
+        open={!!proceedTarget}
+        member={proceedTarget}
+        membersUnder={proceedMembersUnder}
+        onCancel={()=>setProceedTarget(null)}
+        onConfirm={handleProceedToCloseCell}
+        processing={proceeding}
+      />
     </div>
   );
 }
@@ -1065,6 +1258,7 @@ const CSS = `
   --blue:   #5C7C9C; --blue-d: #46647F;
   --danger: #B23B3B; --green:  #3A7D5C;
   --amber:  #8B6914;
+  --lgl:    #6B4FA0; --lgl-d:  #52388A;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
@@ -1148,15 +1342,29 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .day-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;background:#EEF4FF;color:var(--blue-d);border-radius:20px;padding:3px 8px;}
 
 .member-list{display:flex;flex-direction:column;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;}
-.member-row{display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--raised);padding:16px 18px;}
+.member-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;background:var(--raised);padding:14px 18px;}
+.member-row-lgl{background:#FAF6FF;border-left:3px solid var(--lgl);}
+.member-rank{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:var(--paper);border:1px solid var(--line);font-size:11px;font-weight:700;color:var(--faint);display:flex;align-items:center;justify-content:center;margin-top:2px;}
 .member-main{display:flex;flex-direction:column;gap:8px;flex:1;min-width:0;}
 .member-name-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .member-name{font-weight:700;font-size:15px;}
 .member-loc{display:flex;align-items:center;gap:3px;font-size:12px;color:var(--faint);}
 .member-side{display:flex;align-items:center;gap:8px;flex-shrink:0;}
 
+/* LG Leader action row */
+.lgl-action-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-top:4px;}
+.btn-view-cell{display:inline-flex;align-items:center;gap:5px;background:#F2EEF9;border:1px solid #C9B8E8;color:var(--lgl-d);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:background .15s;}
+.btn-view-cell:hover{background:#E8E0F7;}
+.btn-proceed-close{display:inline-flex;align-items:center;gap:5px;background:#FFF3E0;border:1px solid #FFCC80;color:#E65100;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:background .15s;}
+.btn-proceed-close:hover{background:#FFE0B2;}
+
+/* LG Leader notice banner */
+.lgl-notice{display:flex;align-items:flex-start;gap:10px;background:#F2EEF9;border:1px solid #C9B8E8;border-radius:10px;padding:12px 16px;font-size:13px;color:var(--lgl-d);line-height:1.5;margin-bottom:24px;}
+.lgl-notice svg{flex-shrink:0;margin-top:1px;}
+
 .track-pills{display:flex;flex-wrap:wrap;gap:5px;}
 .track-pill{font-size:11px;font-weight:700;color:var(--ink);background:#FBF0DC;border:1px solid var(--gold);border-radius:6px;padding:3px 8px;line-height:1.2;}
+.track-pill-lgl{background:#F2EEF9;border-color:#C9B8E8;color:var(--lgl-d);}
 .track-list-empty{font-size:12px;color:var(--faint);font-weight:400;font-style:italic;}
 
 .subldr-list{display:flex;flex-direction:column;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;}
@@ -1171,14 +1379,12 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .subldr-actions{display:flex;align-items:center;gap:10px;padding:4px 18px 12px;border-top:1px solid var(--line);flex-wrap:wrap;}
 .subldr-actions .track-pills{flex:1;min-width:120px;}
 
-.subl-track-card{background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin-bottom:24px;display:inline-flex;flex-direction:column;gap:8px;}
-.subl-track-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);}
-
 .badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;border-radius:20px;padding:3px 8px;}
 .badge-green{background:#E6F4ED;color:var(--green);}
 .badge-red{background:#F8E9E5;color:var(--danger);}
 .badge-close{background:#EEF4FF;color:var(--blue-d);}
 .badge-notes{background:#FEF3C7;color:var(--amber);}
+.badge-lgl{background:#F2EEF9;color:var(--lgl-d);}
 .member-row-close{background:#F5F8FF;}
 
 .btn-primary{display:inline-flex;align-items:center;gap:6px;background:var(--sage);color:var(--paper);border:none;border-radius:9px;padding:10px 16px;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s;font-family:inherit;}
@@ -1188,6 +1394,9 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .btn-ghost:hover{background:#F1ECDF;}
 .btn-danger{display:inline-flex;align-items:center;gap:6px;background:var(--danger);color:#fff;border:none;border-radius:9px;padding:10px 16px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;}
 .btn-danger:disabled{opacity:.6;}
+.btn-seed{display:inline-flex;align-items:center;gap:6px;background:#E65100;color:#fff;border:none;border-radius:9px;padding:10px 16px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;}
+.btn-seed:disabled{opacity:.6;}
+.btn-seed:hover:not(:disabled){background:#BF360C;}
 .icon-btn{display:inline-flex;align-items:center;justify-content:center;background:none;border:none;color:var(--faint);cursor:pointer;padding:6px;border-radius:6px;}
 .icon-btn:hover{background:#F1ECDF;color:var(--ink);}
 .icon-btn-danger:hover{background:#F8E9E5;color:var(--danger);}
@@ -1198,7 +1407,7 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 
 .overlay{position:fixed;inset:0;background:rgba(31,42,36,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50;}
 .modal{background:var(--raised);border-radius:16px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.25);}
-.modal-sm{max-width:380px;}
+.modal-sm{max-width:400px;}
 .modal-head{display:flex;align-items:center;justify-content:space-between;padding:20px 22px 12px;}
 .modal-head h2{font-size:19px;font-weight:700;}
 .modal-body{padding:4px 22px 22px;display:flex;flex-direction:column;gap:18px;}
@@ -1235,8 +1444,22 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .track-row{display:flex;flex-wrap:wrap;gap:8px;}
 .chip{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:20px;padding:7px 12px;font-size:13px;cursor:pointer;color:var(--faint);}
 .chip-on{border-color:var(--gold);background:#FBF0DC;color:var(--ink);}
+.chip-lgl{border-color:#C9B8E8;}
+.chip-lgl.chip-on{border-color:var(--lgl);background:#F2EEF9;color:var(--lgl-d);}
 .chip input{accent-color:var(--gold);}
+.chip-lgl input{accent-color:var(--lgl);}
+
+/* LG Leader track section in modal */
+.lgl-track-section{display:flex;flex-direction:column;gap:8px;margin-top:8px;padding-top:12px;border-top:1px solid var(--line);}
+.lgl-track-divider{display:flex;align-items:center;gap:8px;}
+.lgl-track-divider span{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--lgl-d);}
+
 .confirm-txt{font-size:14px;line-height:1.5;color:#5B5447;}
+.proceed-info{background:#FFF8F0;border:1px solid #FFCC80;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;}
+.proceed-info-title{font-size:13px;font-weight:700;color:#5D4037;}
+.proceed-member-list{display:flex;flex-wrap:wrap;gap:6px;}
+.proceed-member-chip{font-size:12px;background:#FFF3E0;border:1px solid #FFCC80;border-radius:20px;padding:3px 10px;color:#BF360C;font-weight:700;}
+.proceed-more{background:#F5F5F5;border-color:#E0E0E0;color:var(--faint);}
 
 @media(max-width:560px){
   .doors,.cell-split{grid-template-columns:1fr;}
@@ -1248,6 +1471,7 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
   .stat:not(:first-child){padding:0 4px;}
   .stat-n{font-size:26px;}
   .stat-l{font-size:11px;line-height:1.3;}
+  .lgl-action-row{flex-direction:column;align-items:flex-start;}
 }
 
 @media(max-width:380px){
