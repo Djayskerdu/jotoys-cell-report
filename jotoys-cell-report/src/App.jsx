@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   Users, UserCircle2, Plus, X, Pencil, Trash2, MapPin,
   Loader2, RefreshCw, AlertCircle, ChevronRight, UserPlus,
-  Home, Circle, Calendar, Clock, FileText, ArrowUpRight
+  Home, Circle, Calendar, Clock, FileText, ArrowUpRight, ZoomIn
 } from "lucide-react";
 
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxQ0Lgp_NhBJgWZHbxA5q4Php-F5VaqMrfw270PBDHc-65fBmg-pOkig5m32PQYyTutig/exec";
@@ -1056,6 +1056,17 @@ export default function App() {
   const [proceedTarget, setProceedTarget] = useState(null);
   const [proceeding,    setProceeding]    = useState(false);
 
+  // Text/content size — defaults to "normal" (original size) every time the app loads
+  const [textSize, setTextSize] = useState("normal");
+  const SIZE_STEPS = ["normal", "large", "xlarge"];
+  const SIZE_LABELS = { normal: "Normal", large: "Large", xlarge: "Extra Large" };
+  function cycleTextSize() {
+    setTextSize(prev => {
+      const i = SIZE_STEPS.indexOf(prev);
+      return SIZE_STEPS[(i + 1) % SIZE_STEPS.length];
+    });
+  }
+
   const leaders = members.filter(m => !m.ParentID || String(m.ParentID).trim() === "");
 
   const load = useCallback(async()=>{
@@ -1205,7 +1216,7 @@ export default function App() {
     : [];
 
   return (
-    <div className="shell">
+    <div className="shell" data-textsize={textSize}>
       <style>{CSS}</style>
       <header className="topbar">
         <button className="brand" onClick={goHome}>
@@ -1213,6 +1224,14 @@ export default function App() {
           <span className="brand-name">Jotoy's Cell Report</span>
         </button>
         <div style={{display:"flex",gap:6}}>
+          <button
+            className={`icon-btn resize-btn${textSize!=="normal"?" resize-btn-active":""}`}
+            onClick={cycleTextSize}
+            title="Resize text"
+          >
+            <ZoomIn size={15}/>
+            <span className="resize-btn-label">{SIZE_LABELS[textSize]}</span>
+          </button>
           {route.screen!=="home"&&
             <button className="icon-btn" onClick={goHome} title="Home"><Home size={15}/></button>}
           <button className="icon-btn" onClick={load} title="Refresh">
@@ -1404,11 +1423,16 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .icon-btn:hover{background:#F1ECDF;color:var(--ink);}
 .icon-btn-danger:hover{background:#F8E9E5;color:var(--danger);}
 
+.resize-btn{width:auto;gap:5px;padding:6px 10px;border:1px solid var(--line);}
+.resize-btn-label{font-size:11px;font-weight:700;}
+.resize-btn-active{background:#EAF4F0;border-color:var(--sage);color:var(--sage-d);}
+.resize-btn-active:hover{background:#DCEEE3;}
+
 .empty{display:flex;flex-direction:column;align-items:center;gap:10px;padding:60px 20px;text-align:center;border:1px dashed var(--line);border-radius:14px;color:var(--faint);}
 .empty-title{font-weight:700;color:var(--ink);}
 .empty-sub{font-size:14px;margin-bottom:4px;}
 
-.overlay{position:fixed;inset:0;background:rgba(31,42,36,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50;}
+.overlay{position:fixed;inset:0;background:rgba(31,42,36,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50;overflow:auto;}
 .modal{background:var(--raised);border-radius:16px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.25);}
 .modal-sm{max-width:400px;}
 .modal-head{display:flex;align-items:center;justify-content:space-between;padding:20px 22px 12px;}
@@ -1463,6 +1487,37 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .proceed-member-list{display:flex;flex-wrap:wrap;gap:6px;}
 .proceed-member-chip{font-size:12px;background:#FFF3E0;border:1px solid #FFCC80;border-radius:20px;padding:3px 10px;color:#BF360C;font-weight:700;}
 .proceed-more{background:#F5F5F5;border-color:#E0E0E0;color:var(--faint);}
+
+/* ── Resize / text-size scaling ──────────────────────────────────────
+   Default ("normal") = original size, untouched.
+   "large" / "xlarge" scale up the main content area, topbar, and
+   modal popups using zoom, since every size in this stylesheet is
+   a fixed px value (not rem/em) — font-size alone wouldn't cascade
+   to children. The .shell wrapper clips horizontal overflow so a
+   zoomed box can never push the page wider than the screen; .main
+   and .modal keep their own max-width caps so zoom only makes
+   things bigger within the space already available, not wider than
+   the viewport. */
+.shell{overflow-x:hidden;}
+.main{max-width:880px;}
+.modal{width:min(460px,92vw);}
+
+.shell[data-textsize="large"] .main{zoom:1.12;}
+.shell[data-textsize="large"] .topbar .brand-name,
+.shell[data-textsize="large"] .topbar .resize-btn-label{font-size:115%;}
+.shell[data-textsize="large"] .modal{zoom:1.1;max-height:85vh;}
+
+.shell[data-textsize="xlarge"] .main{zoom:1.25;}
+.shell[data-textsize="xlarge"] .topbar .brand-name,
+.shell[data-textsize="xlarge"] .topbar .resize-btn-label{font-size:128%;}
+.shell[data-textsize="xlarge"] .modal{zoom:1.2;max-height:80vh;}
+
+@media(max-width:480px){
+  .shell[data-textsize="large"] .main{zoom:1.08;}
+  .shell[data-textsize="large"] .modal{zoom:1.05;}
+  .shell[data-textsize="xlarge"] .main{zoom:1.15;}
+  .shell[data-textsize="xlarge"] .modal{zoom:1.1;}
+}
 
 @media(max-width:560px){
   .doors,.cell-split{grid-template-columns:1fr;}
