@@ -1078,16 +1078,40 @@ export default function App() {
 
   useEffect(()=>{load();},[load]);
 
-  const goHome      = ()        => setRoute({screen:"home"});
-  const goGender    = g         => setRoute({screen:"gender",gender:g});
-  const goLeader    = (g,l)     => setRoute({screen:"leader",gender:g,leader:l});
-  const goOpenCell  = (g,l)     => setRoute({screen:"open",gender:g,leader:l});
-  const goCloseCell = (g,l)     => setRoute({screen:"close",gender:g,leader:l});
-  const goSubLeader = (g,l,sub) => setRoute({screen:"subleader",gender:g,leader:l,subLeader:sub});
-  const goSubOpen   = (g,l,sub) => setRoute({screen:"subopen",gender:g,leader:l,subLeader:sub});
-  const goSubClose  = (g,l,sub) => setRoute({screen:"subclose",gender:g,leader:l,subLeader:sub});
+  const navigate = useCallback((newRoute) => {
+    setRoute(newRoute);
+    window.history.pushState({ jcrRoute: newRoute }, "");
+  }, []);
+
+  // On first load, make sure the very first history entry carries the
+  // "home" route as its state, so swiping/pressing back from Home behaves
+  // like leaving the app (correct), while back from any deeper screen
+  // pops to the previous in-app screen instead of exiting (the fix).
+  useEffect(() => {
+    window.history.replaceState({ jcrRoute: { screen: "home" } }, "");
+  }, []);
+
+  // Listen for the browser/swipe back (and forward) gesture and sync
+  // our in-app route to whatever screen the history entry points to.
+  useEffect(() => {
+    function onPopState(event) {
+      const r = event.state && event.state.jcrRoute;
+      setRoute(r || { screen: "home" });
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const goHome      = ()        => navigate({screen:"home"});
+  const goGender    = g         => navigate({screen:"gender",gender:g});
+  const goLeader    = (g,l)     => navigate({screen:"leader",gender:g,leader:l});
+  const goOpenCell  = (g,l)     => navigate({screen:"open",gender:g,leader:l});
+  const goCloseCell = (g,l)     => navigate({screen:"close",gender:g,leader:l});
+  const goSubLeader = (g,l,sub) => navigate({screen:"subleader",gender:g,leader:l,subLeader:sub});
+  const goSubOpen   = (g,l,sub) => navigate({screen:"subopen",gender:g,leader:l,subLeader:sub});
+  const goSubClose  = (g,l,sub) => navigate({screen:"subclose",gender:g,leader:l,subLeader:sub});
   // LG Leader cell (open cell member with LG Leader track)
-  const goLGLeaderCell = (g,l,lglm,fromScreen) => setRoute({screen:"lglcell",gender:g,leader:l,lglMember:lglm,fromScreen});
+  const goLGLeaderCell = (g,l,lglm,fromScreen) => navigate({screen:"lglcell",gender:g,leader:l,lglMember:lglm,fromScreen});
 
   function currentParentId() {
     if (route.screen==="open"||route.screen==="close") return String(route.leader.ID);
@@ -1248,7 +1272,7 @@ export default function App() {
         {route.screen==="close"&&<CloseCellScreen gender={route.gender} leader={route.leader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onPickSubLeader={sub=>goSubLeader(route.gender,route.leader,sub)}/>}
         {route.screen==="subleader"&&<SubLeaderScreen gender={route.gender} leader={route.leader} subLeader={route.subLeader} members={members} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goCloseCell={()=>goCloseCell(route.gender,route.leader)} onPickCell={cell=>cell==="Open Cell"?goSubOpen(route.gender,route.leader,route.subLeader):goSubClose(route.gender,route.leader,route.subLeader)}/>}
         {route.screen==="subopen"&&<SubLeaderOpenScreen gender={route.gender} leader={route.leader} subLeader={route.subLeader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goCloseCell={()=>goCloseCell(route.gender,route.leader)} goSubLeader={()=>goSubLeader(route.gender,route.leader,route.subLeader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onViewLGLeaderCell={handleViewLGLeaderCell} onProceedToClose={handleProceedToCloseClick}/>}
-        {route.screen==="subclose"&&<SubLeaderCloseScreen gender={route.gender} leader={route.leader} subLeader={route.subLeader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goCloseCell={()=>goCloseCell(route.gender,route.leader)} goSubLeader={()=>goSubLeader(route.gender,route.leader,route.subLeader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onPickDeepLeader={deep=>setRoute({screen:"subleader",gender:route.gender,leader:route.leader,subLeader:deep})}/>}
+        {route.screen==="subclose"&&<SubLeaderCloseScreen gender={route.gender} leader={route.leader} subLeader={route.subLeader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goCloseCell={()=>goCloseCell(route.gender,route.leader)} goSubLeader={()=>goSubLeader(route.gender,route.leader,route.subLeader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onPickDeepLeader={deep=>navigate({screen:"subleader",gender:route.gender,leader:route.leader,subLeader:deep})}/>}
         {route.screen==="lglcell"&&<LGLeaderCellScreen gender={route.gender} leader={route.leader} lglMember={route.lglMember} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goOpenCell={()=>goOpenCell(route.gender,route.leader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)}/>}
       </main>
 
