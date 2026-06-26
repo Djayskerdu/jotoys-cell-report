@@ -1250,6 +1250,7 @@ export default function App() {
 
 const CSS = `
 :root {
+  color-scheme: light;
   --paper:  #FAF6EE; --raised: #FFFFFF; --ink: #1F2A24;
   --faint:  #9C9485; --line:   #E4DDCC;
   --sage:   #5B7A63; --sage-d: #44604C;
@@ -1261,7 +1262,9 @@ const CSS = `
   --lgl:    #6B4FA0; --lgl-d:  #52388A;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
-body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+html{color-scheme:light;}
+body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color-scheme:light;}
+.shell{color-scheme:light;}
 .spin{animation:spin .9s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
 
@@ -1415,7 +1418,7 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .modal-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:6px;}
 .field{display:flex;flex-direction:column;gap:6px;border:none;}
 .field>span{font-size:13px;font-weight:700;}
-.field input[type=text],.field input[type=time]{font-size:14px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);font-family:inherit;}
+.field input[type=text],.field input[type=time]{color-scheme:light;font-size:14px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);font-family:inherit;}
 .field input[type=text]:focus,.field input[type=time]:focus{outline:2px solid var(--sage);outline-offset:1px;}
 .hint{font-size:12px;color:var(--faint);}
 .hint-inline{font-size:12px;color:var(--faint);font-weight:400;}
