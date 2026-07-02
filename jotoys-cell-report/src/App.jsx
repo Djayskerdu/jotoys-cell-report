@@ -118,6 +118,81 @@ function LGLeaderBadge() {
   );
 }
 
+function TimothyBadge() {
+  return (
+    <span className="badge badge-timothy">
+      <UserCircle2 size={9}/>Timothy
+    </span>
+  );
+}
+
+// ── Pick Timothy control — shown in a schedule group's header when it
+//    has more than one member. Single-member groups don't need this;
+//    the report auto-fills that lone member's name as Timothy.
+function TimothyControl({ members, onPick }) {
+  const picked = members.filter(m => toBool(m.TIMOTHY));
+  if (picked.length === 0) {
+    return (
+      <button type="button" className="btn-pick-timothy" onClick={onPick}>
+        <UserPlus size={12}/>Pick Timothy
+      </button>
+    );
+  }
+  return (
+    <button type="button" className="timothy-chip" onClick={onPick} title="Click to change">
+      <UserCircle2 size={12}/>Timothy: {picked.map(m=>m.Name).join(", ")}
+    </button>
+  );
+}
+
+// ── Pick Timothy modal — multi-select checklist for one schedule group ──
+function PickTimothyModal({ open, groupMembers, onCancel, onConfirm, saving }) {
+  const [selected, setSelected] = useState([]);
+
+  useEffect(() => {
+    if (open && groupMembers) {
+      setSelected(groupMembers.filter(m => toBool(m.TIMOTHY)).map(m => m.ID));
+    }
+  }, [open, groupMembers]);
+
+  if (!open || !groupMembers) return null;
+
+  const toggle = (id) => setSelected(prev =>
+    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+  );
+
+  return (
+    <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget && !saving)onCancel();}}>
+      <div className="modal modal-sm">
+        <div className="modal-head">
+          <h2>Pick Timothy</h2>
+          <button className="icon-btn" onClick={onCancel}><X size={18}/></button>
+        </div>
+        <div className="modal-body">
+          <p className="hint">Choose who serves as Assistant/Timothy for this cell. You can pick more than one.</p>
+          <div className="timothy-list">
+            {groupMembers.map(m => {
+              const on = selected.includes(m.ID);
+              return (
+                <label key={m.ID} className={on?"timothy-opt timothy-opt-on":"timothy-opt"}>
+                  <input type="checkbox" checked={on} onChange={()=>toggle(m.ID)}/>
+                  {m.Name}
+                </label>
+              );
+            })}
+          </div>
+          <div className="modal-foot">
+            <button className="btn-ghost" onClick={onCancel}>Cancel</button>
+            <button className="btn-primary" onClick={()=>onConfirm(selected)} disabled={saving}>
+              {saving&&<Loader2 size={15} className="spin"/>}Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Proceed to Close Cell confirmation modal ─────────────────────────
 function ProceedToCloseCellModal({ open, member, membersUnder, onCancel, onConfirm, processing }) {
   if (!open || !member) return null;
@@ -456,9 +531,15 @@ function formatTime(t) {
 }
 
 // ── Member row — now shows LG Leader badge + "View Cell" link if applicable
-function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceedToClose, rank }) {
+function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceedToClose, rank, isTimothy }) {
   const isClose = member.Status === "Close Cell";
   const hasLGL = isLGLeader(member);
+  // Timothy status is passed down from the group (GroupedMembers), which
+  // treats a solo member in a schedule slot as Timothy automatically —
+  // matching the same rule the report script (writeOpenCellSection)
+  // already applies on the sheet side. For groups of 2+, this reflects
+  // whichever member(s) were actually flagged via "Pick Timothy".
+  const hasTimothy = isTimothy;
   const ownOpenMembers = allMembers.filter(m =>
     String(m.ParentID) === String(member.ID) && (m.Status||"Open Cell") === "Open Cell"
   );
@@ -471,6 +552,7 @@ function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceed
           <span className="member-name">{member.Name}</span>
           {isClose && <span className="badge badge-close">Close Cell</span>}
           {hasLGL && <LGLeaderBadge/>}
+          {hasTimothy && <TimothyBadge/>}
           <StatusBadge status={member.LifegroupStatus}/>
           {member.Notes && <NotesBadge notes={member.Notes}/>}
           {member.LifegroupLocation && (
@@ -501,7 +583,7 @@ function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceed
   );
 }
 
-function GroupedMembers({ members, allMembers, onEdit, onDelete, onViewCell, onProceedToClose }) {
+function GroupedMembers({ members, allMembers, onEdit, onDelete, onViewCell, onProceedToClose, onPickTimothy }) {
   const groups = {};
   members.forEach(m => {
     const day  = (m.ScheduleDay||"").trim()  || "";
@@ -531,6 +613,11 @@ function GroupedMembers({ members, allMembers, onEdit, onDelete, onViewCell, onP
       {sorted.map(key => {
         const { day, time, members: list } = groups[key];
         const hasSchedule = day || time;
+        // A schedule slot with exactly one member is automatically that
+        // member's Timothy/Assistant — same rule the report script uses
+        // (writeOpenCellSection: sortedMembers.length === 1 → use their
+        // name directly). No TIMOTHY flag needs to be saved for this case.
+        const soloIsTimothy = list.length === 1;
         return (
           <div key={key} className="day-group">
             <div className="day-group-head">
@@ -544,11 +631,17 @@ function GroupedMembers({ members, allMembers, onEdit, onDelete, onViewCell, onP
                   <span style={{color:"var(--faint)"}}>No schedule</span>
                 )}
               </span>
-              <span className="day-group-count">{list.length} {list.length===1?"member":"members"}</span>
+              <div className="day-group-right">
+                {onPickTimothy && list.length > 1 && (
+                  <TimothyControl members={list} onPick={()=>onPickTimothy(list)}/>
+                )}
+                <span className="day-group-count">{list.length} {list.length===1?"member":"members"}</span>
+              </div>
             </div>
             <div className="member-list">
               {list.map((m, i) => (
                 <MemberRow key={m.ID} member={m} allMembers={allMembers} rank={i+1}
+                  isTimothy={soloIsTimothy ? true : toBool(m.TIMOTHY)}
                   onEdit={onEdit} onDelete={onDelete}
                   onViewCell={onViewCell} onProceedToClose={onProceedToClose}/>
               ))}
@@ -719,7 +812,7 @@ function LeaderScreen({ gender, leader, members, goHome, goGender, onPickCell })
 }
 
 // ── Open Cell Screen — now with LG Leader support ────────────────────
-function OpenCellScreen({ gender, leader, members, loading, goHome, goGender, goLeader, onAdd, onEdit, onDelete, onViewLGLeaderCell, onProceedToClose }) {
+function OpenCellScreen({ gender, leader, members, loading, goHome, goGender, goLeader, onAdd, onEdit, onDelete, onViewLGLeaderCell, onProceedToClose, onPickTimothy }) {
   const acc  = gender==="Boys"?"acc-boys":"acc-girls";
   const list = members.filter(m=>String(m.ParentID)===String(leader.ID)&&(m.Status||"Open Cell")==="Open Cell");
   return (
@@ -744,14 +837,14 @@ function OpenCellScreen({ gender, leader, members, loading, goHome, goGender, go
         </div>
       ) : (
         <GroupedMembers members={list} allMembers={members} onEdit={onEdit} onDelete={onDelete}
-          onViewCell={onViewLGLeaderCell} onProceedToClose={onProceedToClose}/>
+          onViewCell={onViewLGLeaderCell} onProceedToClose={onProceedToClose} onPickTimothy={onPickTimothy}/>
       )}
     </div>
   );
 }
 
 // ── LG Leader Cell Screen — shows a member's own open cell (while still in Open Cell themselves) ──
-function LGLeaderCellScreen({ gender, leader, lglMember, members, loading, goHome, goGender, goLeader, goOpenCell, onAdd, onEdit, onDelete }) {
+function LGLeaderCellScreen({ gender, leader, lglMember, members, loading, goHome, goGender, goLeader, goOpenCell, onAdd, onEdit, onDelete, onPickTimothy }) {
   const acc  = gender==="Boys"?"acc-boys":"acc-girls";
   // Only show Open Cell members of this LG Leader (no Close Cell since they haven't seeded up)
   const list = members.filter(m=>String(m.ParentID)===String(lglMember.ID)&&(m.Status||"Open Cell")==="Open Cell");
@@ -792,7 +885,7 @@ function LGLeaderCellScreen({ gender, leader, lglMember, members, loading, goHom
         </div>
       ) : (
         <GroupedMembers members={list} allMembers={members} onEdit={onEdit} onDelete={onDelete}
-          onViewCell={()=>{}} onProceedToClose={()=>{}}/>
+          onViewCell={()=>{}} onProceedToClose={()=>{}} onPickTimothy={onPickTimothy}/>
       )}
     </div>
   );
@@ -938,7 +1031,7 @@ function SubLeaderScreen({ gender, leader, subLeader, members, goHome, goGender,
   );
 }
 
-function SubLeaderOpenScreen({ gender, leader, subLeader, members, loading, goHome, goGender, goLeader, goCloseCell, goSubLeader, onAdd, onEdit, onDelete, onViewLGLeaderCell, onProceedToClose }) {
+function SubLeaderOpenScreen({ gender, leader, subLeader, members, loading, goHome, goGender, goLeader, goCloseCell, goSubLeader, onAdd, onEdit, onDelete, onViewLGLeaderCell, onProceedToClose, onPickTimothy }) {
   const acc  = gender==="Boys"?"acc-boys":"acc-girls";
   const list = members.filter(m=>String(m.ParentID)===String(subLeader.ID)&&(m.Status||"Open Cell")==="Open Cell");
   return (
@@ -958,7 +1051,7 @@ function SubLeaderOpenScreen({ gender, leader, subLeader, members, loading, goHo
       {loading?<div className="empty"><Loader2 size={22} className="spin"/></div>
       :list.length===0?(<div className="empty"><p className="empty-title">No open cell members yet</p><p className="empty-sub">Add a member under {subLeader.Name}.</p><button className="btn-primary" onClick={onAdd}><Plus size={15}/>Add member</button></div>)
       :<GroupedMembers members={list} allMembers={members} onEdit={onEdit} onDelete={onDelete}
-          onViewCell={onViewLGLeaderCell} onProceedToClose={onProceedToClose}/>}
+          onViewCell={onViewLGLeaderCell} onProceedToClose={onProceedToClose} onPickTimothy={onPickTimothy}/>}
     </div>
   );
 }
@@ -1055,6 +1148,9 @@ export default function App() {
   // Proceed to Close Cell state
   const [proceedTarget, setProceedTarget] = useState(null);
   const [proceeding,    setProceeding]    = useState(false);
+  // Pick Timothy state
+  const [timothyTarget, setTimothyTarget] = useState(null);
+  const [savingTimothy, setSavingTimothy] = useState(false);
 
   // Text/content size — defaults to "normal" (original size) every time the app loads
   const [textSize, setTextSize] = useState("normal");
@@ -1239,6 +1335,39 @@ export default function App() {
     ? members.filter(m=>String(m.ParentID)===String(proceedTarget.ID))
     : [];
 
+  // ── Pick Timothy handlers ────────────────────────────────────────
+  // Opens the modal for one schedule group's member list.
+  function handlePickTimothy(groupMembers) {
+    setTimothyTarget(groupMembers);
+  }
+
+  // Saves only the members whose TIMOTHY value actually changed —
+  // uses the backend's partial-update support (updateMember only
+  // touches fields present in the posted `member` object).
+  async function handleSaveTimothy(selectedIds) {
+    if (!timothyTarget) return;
+    setSavingTimothy(true);
+    try {
+      const changed = timothyTarget.filter(m => {
+        const now  = toBool(m.TIMOTHY);
+        const want = selectedIds.includes(m.ID);
+        return now !== want;
+      });
+      for (const m of changed) {
+        const want = selectedIds.includes(m.ID) ? "TRUE" : "FALSE";
+        await apiPost({ action:"updateMember", id:m.ID, member:{ TIMOTHY: want } });
+      }
+      const changedIds = new Set(changed.map(m=>m.ID));
+      setMembers(prev => prev.map(m =>
+        changedIds.has(m.ID)
+          ? { ...m, TIMOTHY: selectedIds.includes(m.ID) ? "TRUE" : "FALSE" }
+          : m
+      ));
+      setTimothyTarget(null);
+    } catch { setError("Couldn't update Timothy. Try again."); }
+    finally { setSavingTimothy(false); }
+  }
+
   return (
     <div className="shell" data-textsize={textSize}>
       <style>{CSS}</style>
@@ -1268,12 +1397,12 @@ export default function App() {
         {route.screen==="home"&&<HomeScreen members={members} leaders={leaders} loading={loading} error={error} onRetry={load} onEnter={goGender}/>}
         {route.screen==="gender"&&<GenderScreen gender={route.gender} leaders={leaders} members={members} loading={loading} goHome={goHome} onPickLeader={l=>goLeader(route.gender,l)} onAddLeader={()=>setLdrModal(true)}/>}
         {route.screen==="leader"&&<LeaderScreen gender={route.gender} leader={route.leader} members={members} goHome={goHome} goGender={()=>goGender(route.gender)} onPickCell={cell=>cell==="Open Cell"?goOpenCell(route.gender,route.leader):goCloseCell(route.gender,route.leader)}/>}
-        {route.screen==="open"&&<OpenCellScreen gender={route.gender} leader={route.leader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onViewLGLeaderCell={handleViewLGLeaderCell} onProceedToClose={handleProceedToCloseClick}/>}
+        {route.screen==="open"&&<OpenCellScreen gender={route.gender} leader={route.leader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onViewLGLeaderCell={handleViewLGLeaderCell} onProceedToClose={handleProceedToCloseClick} onPickTimothy={handlePickTimothy}/>}
         {route.screen==="close"&&<CloseCellScreen gender={route.gender} leader={route.leader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onPickSubLeader={sub=>goSubLeader(route.gender,route.leader,sub)}/>}
         {route.screen==="subleader"&&<SubLeaderScreen gender={route.gender} leader={route.leader} subLeader={route.subLeader} members={members} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goCloseCell={()=>goCloseCell(route.gender,route.leader)} onPickCell={cell=>cell==="Open Cell"?goSubOpen(route.gender,route.leader,route.subLeader):goSubClose(route.gender,route.leader,route.subLeader)}/>}
-        {route.screen==="subopen"&&<SubLeaderOpenScreen gender={route.gender} leader={route.leader} subLeader={route.subLeader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goCloseCell={()=>goCloseCell(route.gender,route.leader)} goSubLeader={()=>goSubLeader(route.gender,route.leader,route.subLeader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onViewLGLeaderCell={handleViewLGLeaderCell} onProceedToClose={handleProceedToCloseClick}/>}
+        {route.screen==="subopen"&&<SubLeaderOpenScreen gender={route.gender} leader={route.leader} subLeader={route.subLeader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goCloseCell={()=>goCloseCell(route.gender,route.leader)} goSubLeader={()=>goSubLeader(route.gender,route.leader,route.subLeader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onViewLGLeaderCell={handleViewLGLeaderCell} onProceedToClose={handleProceedToCloseClick} onPickTimothy={handlePickTimothy}/>}
         {route.screen==="subclose"&&<SubLeaderCloseScreen gender={route.gender} leader={route.leader} subLeader={route.subLeader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goCloseCell={()=>goCloseCell(route.gender,route.leader)} goSubLeader={()=>goSubLeader(route.gender,route.leader,route.subLeader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onPickDeepLeader={deep=>navigate({screen:"subleader",gender:route.gender,leader:route.leader,subLeader:deep})}/>}
-        {route.screen==="lglcell"&&<LGLeaderCellScreen gender={route.gender} leader={route.leader} lglMember={route.lglMember} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goOpenCell={()=>goOpenCell(route.gender,route.leader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)}/>}
+        {route.screen==="lglcell"&&<LGLeaderCellScreen gender={route.gender} leader={route.leader} lglMember={route.lglMember} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goOpenCell={()=>goOpenCell(route.gender,route.leader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onPickTimothy={handlePickTimothy}/>}
       </main>
 
       <MemberModal open={modalOpen} onClose={()=>{if(!saving){setModalOpen(false);setEditing(null);}}} onSave={handleSaveMember} initial={editing} leaderName={currentLeaderName()} defaultStatus={currentDefaultStatus()} existingDays={currentExistingDays()} saving={saving}/>
@@ -1286,6 +1415,13 @@ export default function App() {
         onCancel={()=>setProceedTarget(null)}
         onConfirm={handleProceedToCloseCell}
         processing={proceeding}
+      />
+      <PickTimothyModal
+        open={!!timothyTarget}
+        groupMembers={timothyTarget}
+        onCancel={()=>setTimothyTarget(null)}
+        onConfirm={handleSaveTimothy}
+        saving={savingTimothy}
       />
     </div>
   );
@@ -1303,6 +1439,7 @@ const CSS = `
   --danger: #B23B3B; --green:  #3A7D5C;
   --amber:  #8B6914;
   --lgl:    #6B4FA0; --lgl-d:  #52388A;
+  --tim:    #B8850C; --tim-d:  #8A6208;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 html{color-scheme:light;}
@@ -1381,8 +1518,9 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 
 .groups{display:flex;flex-direction:column;gap:24px;}
 .day-group{display:flex;flex-direction:column;gap:10px;}
-.day-group-head{display:flex;align-items:center;justify-content:space-between;padding:0 2px;}
+.day-group-head{display:flex;align-items:center;justify-content:space-between;padding:0 2px;gap:10px;flex-wrap:wrap;}
 .day-group-label{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--ink);}
+.day-group-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
 .day-group-count{font-size:12px;color:var(--faint);}
 
 .day-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;background:#EEF4FF;color:var(--blue-d);border-radius:20px;padding:3px 8px;}
@@ -1408,6 +1546,18 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .lgl-notice{display:flex;align-items:flex-start;gap:10px;background:#F2EEF9;border:1px solid #C9B8E8;border-radius:10px;padding:12px 16px;font-size:13px;color:var(--lgl-d);line-height:1.5;margin-bottom:24px;}
 .lgl-notice svg{flex-shrink:0;margin-top:1px;}
 
+/* Pick Timothy control (day-group header) */
+.btn-pick-timothy{display:inline-flex;align-items:center;gap:5px;background:var(--raised);border:1px dashed var(--tim);color:var(--tim-d);border-radius:20px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;transition:background .15s;}
+.btn-pick-timothy:hover{background:#FCF3DE;}
+.timothy-chip{display:inline-flex;align-items:center;gap:5px;background:#FCF3DE;border:1px solid var(--tim);color:var(--tim-d);border-radius:20px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background .15s;}
+.timothy-chip:hover{background:#F9E7BE;}
+
+/* Pick Timothy modal checklist */
+.timothy-list{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;}
+.timothy-opt{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:14px;cursor:pointer;color:var(--ink);}
+.timothy-opt-on{border-color:var(--tim);background:#FCF3DE;}
+.timothy-opt input{accent-color:var(--tim);width:16px;height:16px;}
+
 .track-pills{display:flex;flex-wrap:wrap;gap:5px;}
 .track-pill{font-size:11px;font-weight:700;color:var(--ink);background:#FBF0DC;border:1px solid var(--gold);border-radius:6px;padding:3px 8px;line-height:1.2;}
 .track-pill-lgl{background:#F2EEF9;border-color:#C9B8E8;color:var(--lgl-d);}
@@ -1431,6 +1581,7 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .badge-close{background:#EEF4FF;color:var(--blue-d);}
 .badge-notes{background:#FEF3C7;color:var(--amber);}
 .badge-lgl{background:#F2EEF9;color:var(--lgl-d);}
+.badge-timothy{background:#FCF3DE;color:var(--tim-d);}
 .member-row-close{background:#F5F8FF;}
 
 .btn-primary{display:inline-flex;align-items:center;gap:6px;background:var(--sage);color:var(--paper);border:none;border-radius:9px;padding:10px 16px;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s;font-family:inherit;}
