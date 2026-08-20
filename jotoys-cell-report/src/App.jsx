@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Users, UserCircle2, Plus, X, Pencil, Trash2, MapPin,
   Loader2, RefreshCw, AlertCircle, ChevronRight, UserPlus,
-  Home, Circle, Calendar, Clock, FileText, ArrowUpRight, ZoomIn
+  Home, Circle, Calendar, Clock, FileText, ArrowUpRight, ZoomIn,
+  Camera
 } from "lucide-react";
 
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxQ0Lgp_NhBJgWZHbxA5q4Php-F5VaqMrfw270PBDHc-65fBmg-pOkig5m32PQYyTutig/exec";
@@ -36,6 +37,35 @@ function trackCount(member) {
 
 function isLGLeader(member) {
   return toBool(member.LGLEADER);
+}
+
+// ── Read an image file, downscale it, and hand back a compact JPEG
+//    data URL. Keeps the POST body small and the upload fast.
+function fileToDataUrl(file, maxDim = 480, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Couldn't read file"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Couldn't read image"));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > maxDim) {
+          height = Math.round(height * (maxDim / width));
+          width = maxDim;
+        } else if (height >= width && height > maxDim) {
+          width = Math.round(width * (maxDim / height));
+          height = maxDim;
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function countLifegroups(list) {
@@ -75,6 +105,65 @@ function TrackList({ member }) {
         <span key={t.key} className={`track-pill${t.key==="LGLEADER"?" track-pill-lgl":""}`}>{t.label}</span>
       ))}
     </div>
+  );
+}
+
+// ── Avatar — shows a member's photo, or a fallback icon if there's no
+//    PhotoURL yet or the image fails to load.
+function Avatar({ url, name, size = 38 }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => { setBroken(false); }, [url]);
+  if (!url || broken) {
+    return (
+      <div className="avatar avatar-fallback" style={{ width: size, height: size }}>
+        <UserCircle2 size={Math.round(size * 0.68)} strokeWidth={1.5} />
+      </div>
+    );
+  }
+  return (
+    <img
+      className="avatar" src={url} alt={name || "Member"}
+      style={{ width: size, height: size }}
+      onError={() => setBroken(true)}
+    />
+  );
+}
+
+// ── Photo picker — used inside MemberModal / LeaderModal.
+function PhotoPicker({ preview, onPick, onRemove, uploading }) {
+  const inputRef = useRef(null);
+  return (
+    <fieldset className="field">
+      <span>Photo <span className="hint-inline">(optional)</span></span>
+      <div className="photo-picker">
+        <div className="photo-picker-preview">
+          {uploading
+            ? <Loader2 size={20} className="spin" />
+            : preview
+              ? <img src={preview} alt="Preview" />
+              : <UserCircle2 size={26} strokeWidth={1.5} />}
+        </div>
+        <div className="photo-picker-actions">
+          <button type="button" className="btn-ghost btn-photo"
+            onClick={() => inputRef.current?.click()} disabled={uploading}>
+            <Camera size={14} />{preview ? "Change photo" : "Add photo"}
+          </button>
+          {preview && (
+            <button type="button" className="btn-photo-remove" onClick={onRemove} disabled={uploading}>
+              <X size={13} />Remove
+            </button>
+          )}
+        </div>
+        <input
+          ref={inputRef} type="file" accept="image/*" hidden
+          onChange={e => {
+            const f = e.target.files?.[0];
+            if (f) onPick(f);
+            e.target.value = "";
+          }}
+        />
+      </div>
+    </fieldset>
   );
 }
 
@@ -126,9 +215,6 @@ function TimothyBadge() {
   );
 }
 
-// ── Pick Timothy control — shown in a schedule group's header when it
-//    has more than one member. Single-member groups don't need this;
-//    the report auto-fills that lone member's name as Timothy.
 function TimothyControl({ members, onPick }) {
   const picked = members.filter(m => toBool(m.TIMOTHY));
   if (picked.length === 0) {
@@ -145,7 +231,6 @@ function TimothyControl({ members, onPick }) {
   );
 }
 
-// ── Pick Timothy modal — multi-select checklist for one schedule group ──
 function PickTimothyModal({ open, groupMembers, onCancel, onConfirm, saving }) {
   const [selected, setSelected] = useState([]);
 
@@ -193,7 +278,6 @@ function PickTimothyModal({ open, groupMembers, onCancel, onConfirm, saving }) {
   );
 }
 
-// ── Proceed to Close Cell confirmation modal ─────────────────────────
 function ProceedToCloseCellModal({ open, member, membersUnder, onCancel, onConfirm, processing }) {
   if (!open || !member) return null;
   const openUnder = membersUnder.filter(m=>(m.Status||"Open Cell")==="Open Cell");
@@ -253,9 +337,36 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
   const [names, setNames] = useState([""]);
   const [dayMode, setDayMode] = useState("pick");
 
+  const [photoPreview, setPhotoPreview] = useState("");
+  const [photoData, setPhotoData]       = useState("");
+  const [photoRemoved, setPhotoRemoved] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+
+  async function handlePickPhoto(file) {
+    try {
+      setPhotoUploading(true);
+      const dataUrl = await fileToDataUrl(file);
+      setPhotoPreview(dataUrl);
+      setPhotoData(dataUrl);
+      setPhotoRemoved(false);
+    } catch {
+      // Ignore — user can just try picking again.
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+  function handleRemovePhoto() {
+    setPhotoPreview("");
+    setPhotoData("");
+    setPhotoRemoved(true);
+  }
+
   useEffect(() => {
     if (!open) return;
     if (initial) {
+      setPhotoPreview(initial.PhotoURL || "");
+      setPhotoData("");
+      setPhotoRemoved(false);
       setForm({
         LifegroupLocation:initial.LifegroupLocation||"",
         ScheduleDay:      initial.ScheduleDay||"",
@@ -278,6 +389,9 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
     } else {
       setForm(blank());
       setNames([""]);
+      setPhotoPreview("");
+      setPhotoData("");
+      setPhotoRemoved(false);
       setDayMode(existingDays.length ? "pick" : "type");
     }
   }, [open, initial, defaultStatus]);
@@ -290,7 +404,6 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
   const addNameRow = () => setNames(prev => [...prev, ""]);
   const removeNameAt = (i) => setNames(prev => prev.filter((_,idx)=>idx!==i));
 
-  // Split tracks: regular vs LG Leader
   const regularTracks = TRACKS.filter(t => t.key !== "LGLEADER");
   const lgLeaderTrack = TRACKS.find(t => t.key === "LGLEADER");
 
@@ -303,16 +416,28 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
         </div>
         <form className="modal-body" onSubmit={e=>{
           e.preventDefault();
+          const photoFields = photoData
+            ? { PhotoData: photoData }
+            : photoRemoved ? { PhotoURL: "" } : {};
           if (initial) {
             if (!name.trim()) return;
-            onSave({ ...form, Name: name.trim() });
+            onSave({ ...form, Name: name.trim(), ...photoFields });
           } else {
             const cleaned = names.map(n=>n.trim()).filter(Boolean);
             if (cleaned.length === 0) return;
-            onSave({ ...form, Names: cleaned });
+            onSave({ ...form, Names: cleaned, ...photoFields });
           }
         }}>
           <p className="modal-sub">Under <strong>{leaderName}</strong></p>
+
+          {(initial || names.length === 1) && (
+            <PhotoPicker
+              preview={photoPreview}
+              uploading={photoUploading}
+              onPick={handlePickPhoto}
+              onRemove={handleRemovePhoto}
+            />
+          )}
 
           {initial ? (
             <label className="field">
@@ -421,7 +546,6 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
                 );
               })}
             </div>
-            {/* LG Leader track — special section */}
             <div className="lgl-track-section">
               <div className="lgl-track-divider">
                 <span>Leadership Track</span>
@@ -469,7 +593,28 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
 
 function LeaderModal({ open, onClose, onSave, gender, saving }) {
   const [name, setName] = useState("");
-  useEffect(()=>{ if(open) setName(""); },[open]);
+  const [photoPreview, setPhotoPreview]     = useState("");
+  const [photoData, setPhotoData]           = useState("");
+  const [photoUploading, setPhotoUploading] = useState(false);
+
+  useEffect(()=>{
+    if (open) { setName(""); setPhotoPreview(""); setPhotoData(""); }
+  },[open]);
+
+  async function handlePickPhoto(file) {
+    try {
+      setPhotoUploading(true);
+      const dataUrl = await fileToDataUrl(file);
+      setPhotoPreview(dataUrl);
+      setPhotoData(dataUrl);
+    } catch {
+      // Ignore — user can just try picking again.
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+  function handleRemovePhoto() { setPhotoPreview(""); setPhotoData(""); }
+
   if (!open) return null;
   return (
     <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
@@ -479,13 +624,22 @@ function LeaderModal({ open, onClose, onSave, gender, saving }) {
           <button className="icon-btn" onClick={onClose}><X size={18}/></button>
         </div>
         <form className="modal-body" onSubmit={e=>{
-          e.preventDefault(); if(!name.trim()) return; onSave({Name:name.trim(),Gender:gender});
+          e.preventDefault(); if(!name.trim()) return;
+          const member = { Name:name.trim(), Gender:gender };
+          if (photoData) member.PhotoData = photoData;
+          onSave(member);
         }}>
           <label className="field">
             <span>Leader name</span>
             <input autoFocus type="text" value={name} required placeholder="Full name"
               onChange={e=>setName(e.target.value)}/>
           </label>
+          <PhotoPicker
+            preview={photoPreview}
+            uploading={photoUploading}
+            onPick={handlePickPhoto}
+            onRemove={handleRemovePhoto}
+          />
           <p className="hint">Added under {NETWORK_LEADERS[gender] || gender}.</p>
           <div className="modal-foot">
             <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
@@ -530,15 +684,9 @@ function formatTime(t) {
   return `${hr}:${String(m).padStart(2,"0")} ${ampm}`;
 }
 
-// ── Member row — now shows LG Leader badge + "View Cell" link if applicable
 function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceedToClose, rank, isTimothy }) {
   const isClose = member.Status === "Close Cell";
   const hasLGL = isLGLeader(member);
-  // Timothy status is passed down from the group (GroupedMembers), which
-  // treats a solo member in a schedule slot as Timothy automatically —
-  // matching the same rule the report script (writeOpenCellSection)
-  // already applies on the sheet side. For groups of 2+, this reflects
-  // whichever member(s) were actually flagged via "Pick Timothy".
   const hasTimothy = isTimothy;
   const ownOpenMembers = allMembers.filter(m =>
     String(m.ParentID) === String(member.ID) && (m.Status||"Open Cell") === "Open Cell"
@@ -547,6 +695,7 @@ function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceed
   return (
     <div className={`member-row${isClose?" member-row-close":""}${hasLGL?" member-row-lgl":""}`}>
       <div className="member-rank">{rank}</div>
+      <Avatar url={member.PhotoURL} name={member.Name} size={38}/>
       <div className="member-main">
         <div className="member-name-line">
           <span className="member-name">{member.Name}</span>
@@ -560,7 +709,6 @@ function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceed
           )}
         </div>
         <TrackList member={member}/>
-        {/* If LG Leader: show their open cell count + action buttons */}
         {hasLGL && !isClose && (
           <div className="lgl-action-row">
             <button className="btn-view-cell" onClick={()=>onViewCell(member)}>
@@ -613,10 +761,6 @@ function GroupedMembers({ members, allMembers, onEdit, onDelete, onViewCell, onP
       {sorted.map(key => {
         const { day, time, members: list } = groups[key];
         const hasSchedule = day || time;
-        // A schedule slot with exactly one member is automatically that
-        // member's Timothy/Assistant — same rule the report script uses
-        // (writeOpenCellSection: sortedMembers.length === 1 → use their
-        // name directly). No TIMOTHY flag needs to be saved for this case.
         const soloIsTimothy = list.length === 1;
         return (
           <div key={key} className="day-group">
@@ -746,7 +890,10 @@ function GenderScreen({ gender, leaders, members, loading, goHome, onPickLeader,
             })).values()].filter(s=>s.day||s.time);
             return (
               <button key={l.ID} className="leader-card" onClick={()=>onPickLeader(l)}>
-                <span className="lc-tag">Lifegroup Leader</span>
+                <div className="lc-avatar-row">
+                  <Avatar url={l.PhotoURL} name={l.Name} size={44}/>
+                  <span className="lc-tag">Lifegroup Leader</span>
+                </div>
                 <span className="lc-name">{l.Name}</span>
                 <div className="lc-counts">
                   <span className="lc-pill lc-open">{openLG} Open Cell</span>
@@ -787,10 +934,13 @@ function LeaderScreen({ gender, leader, members, goHome, goGender, onPickCell })
     <div className={`screen ${acc}`}>
       <Breadcrumb crumbs={[{label:"Home",onClick:goHome},{label:gender,onClick:goGender}]} current={leader.Name}/>
       <div className="screen-head">
-        <div>
-          <span className="eyebrow-sm">Lifegroup Leader · under {networkLeader}</span>
-          <h1>{leader.Name}</h1>
-          <p className="sub">{mine.length} {mine.length===1?"disciple":"disciples"} total</p>
+        <div className="screen-head-leader">
+          <Avatar url={leader.PhotoURL} name={leader.Name} size={54}/>
+          <div>
+            <span className="eyebrow-sm">Lifegroup Leader · under {networkLeader}</span>
+            <h1>{leader.Name}</h1>
+            <p className="sub">{mine.length} {mine.length===1?"disciple":"disciples"} total</p>
+          </div>
         </div>
       </div>
       <div className="cell-split">
@@ -811,7 +961,6 @@ function LeaderScreen({ gender, leader, members, goHome, goGender, onPickCell })
   );
 }
 
-// ── Open Cell Screen — now with LG Leader support ────────────────────
 function OpenCellScreen({ gender, leader, members, loading, goHome, goGender, goLeader, onAdd, onEdit, onDelete, onViewLGLeaderCell, onProceedToClose, onPickTimothy }) {
   const acc  = gender==="Boys"?"acc-boys":"acc-girls";
   const list = members.filter(m=>String(m.ParentID)===String(leader.ID)&&(m.Status||"Open Cell")==="Open Cell");
@@ -843,10 +992,8 @@ function OpenCellScreen({ gender, leader, members, loading, goHome, goGender, go
   );
 }
 
-// ── LG Leader Cell Screen — shows a member's own open cell (while still in Open Cell themselves) ──
 function LGLeaderCellScreen({ gender, leader, lglMember, members, loading, goHome, goGender, goLeader, goOpenCell, onAdd, onEdit, onDelete, onPickTimothy }) {
   const acc  = gender==="Boys"?"acc-boys":"acc-girls";
-  // Only show Open Cell members of this LG Leader (no Close Cell since they haven't seeded up)
   const list = members.filter(m=>String(m.ParentID)===String(lglMember.ID)&&(m.Status||"Open Cell")==="Open Cell");
 
   return (
@@ -856,21 +1003,23 @@ function LGLeaderCellScreen({ gender, leader, lglMember, members, loading, goHom
         {label:leader.Name,onClick:goLeader},{label:"Open Cell",onClick:goOpenCell},
       ]} current={`${lglMember.Name}'s Cell`}/>
       <div className="screen-head">
-        <div>
-          <span className="eyebrow-sm">LG Leader Cell · under {leader.Name}</span>
-          <h1>{lglMember.Name}'s Cell</h1>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4,flexWrap:"wrap"}}>
-            <LGLeaderBadge/>
-            <StatusBadge status={lglMember.LifegroupStatus}/>
-            {lglMember.LifegroupLocation&&(
-              <span className="sub" style={{display:"flex",alignItems:"center",gap:4}}>
-                <MapPin size={12}/>{lglMember.LifegroupLocation}
-              </span>
-            )}
+        <div className="screen-head-leader">
+          <Avatar url={lglMember.PhotoURL} name={lglMember.Name} size={54}/>
+          <div>
+            <span className="eyebrow-sm">LG Leader Cell · under {leader.Name}</span>
+            <h1>{lglMember.Name}'s Cell</h1>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4,flexWrap:"wrap"}}>
+              <LGLeaderBadge/>
+              <StatusBadge status={lglMember.LifegroupStatus}/>
+              {lglMember.LifegroupLocation&&(
+                <span className="sub" style={{display:"flex",alignItems:"center",gap:4}}>
+                  <MapPin size={12}/>{lglMember.LifegroupLocation}
+                </span>
+              )}
+            </div>
+            <p className="sub" style={{marginTop:6}}>{list.length} open cell {list.length===1?"member":"members"}</p>
           </div>
-          <p className="sub" style={{marginTop:6}}>{list.length} open cell {list.length===1?"member":"members"}</p>
         </div>
-        <button className="btn-primary" onClick={onAdd}><Plus size={15}/>Add member</button>
       </div>
       <div className="lgl-notice">
         <Users size={14}/>
@@ -953,6 +1102,7 @@ function CloseCellScreen({ gender, leader, members, loading, goHome, goGender, g
                     return(
                       <div key={m.ID} className="subldr-row">
                         <button className="subldr-main" onClick={()=>onPickSubLeader(m)}>
+                          <Avatar url={m.PhotoURL} name={m.Name} size={34}/>
                           <div className="subldr-info">
                             <span className="subldr-name">{m.Name}</span>
                             {m.LifegroupLocation&&<span className="subldr-loc"><MapPin size={11}/>{m.LifegroupLocation}</span>}
@@ -998,19 +1148,22 @@ function SubLeaderScreen({ gender, leader, subLeader, members, goHome, goGender,
         {label:leader.Name,onClick:goLeader},{label:"Close Cell",onClick:goCloseCell},
       ]} current={subLeader.Name}/>
       <div className="screen-head">
-        <div>
-          <span className="eyebrow-sm">Close Cell Leader · under {leader.Name}</span>
-          <h1>{subLeader.Name}</h1>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4,flexWrap:"wrap"}}>
-            <StatusBadge status={subLeader.LifegroupStatus}/>
-            {subLeader.Notes&&<NotesBadge notes={subLeader.Notes}/>}
-            {subLeader.LifegroupLocation&&(
-              <span className="sub" style={{display:"flex",alignItems:"center",gap:4}}>
-                <MapPin size={12}/>{subLeader.LifegroupLocation}
-              </span>
-            )}
+        <div className="screen-head-leader">
+          <Avatar url={subLeader.PhotoURL} name={subLeader.Name} size={54}/>
+          <div>
+            <span className="eyebrow-sm">Close Cell Leader · under {leader.Name}</span>
+            <h1>{subLeader.Name}</h1>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4,flexWrap:"wrap"}}>
+              <StatusBadge status={subLeader.LifegroupStatus}/>
+              {subLeader.Notes&&<NotesBadge notes={subLeader.Notes}/>}
+              {subLeader.LifegroupLocation&&(
+                <span className="sub" style={{display:"flex",alignItems:"center",gap:4}}>
+                  <MapPin size={12}/>{subLeader.LifegroupLocation}
+                </span>
+              )}
+            </div>
+            <p className="sub" style={{marginTop:6}}>{mine.length} {mine.length===1?"disciple":"disciples"} total</p>
           </div>
-          <p className="sub" style={{marginTop:6}}>{mine.length} {mine.length===1?"disciple":"disciples"} total</p>
         </div>
       </div>
       <div className="cell-split">
@@ -1113,6 +1266,7 @@ function SubLeaderCloseScreen({ gender, leader, subLeader, members, loading, goH
                   return(
                     <div key={m.ID} className="subldr-row">
                       <button className="subldr-main" onClick={()=>onPickDeepLeader(m)}>
+                        <Avatar url={m.PhotoURL} name={m.Name} size={34}/>
                         <div className="subldr-info"><span className="subldr-name">{m.Name}</span>{m.LifegroupLocation&&<span className="subldr-loc"><MapPin size={11}/>{m.LifegroupLocation}</span>}</div>
                         <div className="subldr-meta"><StatusBadge status={m.LifegroupStatus}/>{m.Notes&&<NotesBadge notes={m.Notes}/>}<span className="subldr-count">{lgLabel(countLifegroups(ownMembers))}</span><ChevronRight size={15} style={{color:"var(--faint)"}}/></div>
                       </button>
@@ -1145,14 +1299,11 @@ export default function App() {
   const [deleting,  setDeleting]  = useState(false);
   const [ldrModal,  setLdrModal]  = useState(false);
   const [savingLdr, setSavingLdr] = useState(false);
-  // Proceed to Close Cell state
   const [proceedTarget, setProceedTarget] = useState(null);
   const [proceeding,    setProceeding]    = useState(false);
-  // Pick Timothy state
   const [timothyTarget, setTimothyTarget] = useState(null);
   const [savingTimothy, setSavingTimothy] = useState(false);
 
-  // Text/content size — defaults to "normal" (original size) every time the app loads
   const [textSize, setTextSize] = useState("normal");
   const SIZE_STEPS = ["normal", "large", "xlarge"];
   const SIZE_LABELS = { normal: "Normal", large: "Large", xlarge: "Extra Large" };
@@ -1179,16 +1330,10 @@ export default function App() {
     window.history.pushState({ jcrRoute: newRoute }, "");
   }, []);
 
-  // On first load, make sure the very first history entry carries the
-  // "home" route as its state, so swiping/pressing back from Home behaves
-  // like leaving the app (correct), while back from any deeper screen
-  // pops to the previous in-app screen instead of exiting (the fix).
   useEffect(() => {
     window.history.replaceState({ jcrRoute: { screen: "home" } }, "");
   }, []);
 
-  // Listen for the browser/swipe back (and forward) gesture and sync
-  // our in-app route to whatever screen the history entry points to.
   useEffect(() => {
     function onPopState(event) {
       const r = event.state && event.state.jcrRoute;
@@ -1206,7 +1351,6 @@ export default function App() {
   const goSubLeader = (g,l,sub) => navigate({screen:"subleader",gender:g,leader:l,subLeader:sub});
   const goSubOpen   = (g,l,sub) => navigate({screen:"subopen",gender:g,leader:l,subLeader:sub});
   const goSubClose  = (g,l,sub) => navigate({screen:"subclose",gender:g,leader:l,subLeader:sub});
-  // LG Leader cell (open cell member with LG Leader track)
   const goLGLeaderCell = (g,l,lglm,fromScreen) => navigate({screen:"lglcell",gender:g,leader:l,lglMember:lglm,fromScreen});
 
   function currentParentId() {
@@ -1238,20 +1382,24 @@ export default function App() {
     const pid = currentParentId();
     try {
       if (editing) {
-        await apiPost({action:"updateMember",id:editing.ID,member:form});
-        setMembers(prev=>prev.map(m=>String(m.ID)===String(editing.ID)?{...m,...form}:m));
+        const res = await apiPost({action:"updateMember",id:editing.ID,member:form});
+        const { PhotoData, ...rest } = form;
+        const patch = res.photoUrl ? { ...rest, PhotoURL: res.photoUrl } : rest;
+        setMembers(prev=>prev.map(m=>String(m.ID)===String(editing.ID)?{...m,...patch}:m));
       } else if (form.Names) {
-        const { Names, ...shared } = form;
+        const { Names, PhotoData, ...shared } = form;
         const created = [];
         for (const nm of Names) {
           const member = { ...shared, Name: nm, ParentID: pid };
+          if (PhotoData) member.PhotoData = PhotoData;
           const res = await apiPost({action:"createMember", member});
-          created.push({ ...member, ID: res.id });
+          created.push({ ...shared, Name: nm, ParentID: pid, ID: res.id, PhotoURL: res.photoUrl || "" });
         }
         setMembers(prev=>[...prev, ...created]);
       } else {
+        const { PhotoData, ...rest } = form;
         const res = await apiPost({action:"createMember",member:{...form,ParentID:pid}});
-        setMembers(prev=>[...prev,{...form,ParentID:pid,ID:res.id}]);
+        setMembers(prev=>[...prev,{...rest,ParentID:pid,ID:res.id,PhotoURL:res.photoUrl||""}]);
       }
       setModalOpen(false); setEditing(null);
     } catch { setError("Couldn't save. Try again."); }
@@ -1273,18 +1421,17 @@ export default function App() {
     setSavingLdr(true);
     try {
       const res = await apiPost({action:"createRoot",member:form});
-      setMembers(prev=>[...prev,{...form,ID:res.id,ParentID:"",Status:"Close Cell",LifegroupStatus:"Active"}]);
+      const { PhotoData, ...rest } = form;
+      setMembers(prev=>[...prev,{...rest,ID:res.id,ParentID:"",Status:"Close Cell",LifegroupStatus:"Active",PhotoURL:res.photoUrl||""}]);
       setLdrModal(false);
     } catch { setError("Couldn't add leader. Try again."); }
     finally  { setSavingLdr(false); }
   }
 
-  // ── Proceed to Close Cell handler ──────────────────────────────────
   async function handleProceedToCloseCell() {
     if (!proceedTarget) return;
     setProceeding(true);
     try {
-      // Update the member's Status to "Close Cell"
       const updatedForm = {
         Name:              proceedTarget.Name,
         LifegroupLocation: proceedTarget.LifegroupLocation||"",
@@ -1304,20 +1451,16 @@ export default function App() {
         LGLEADER:          toBool(proceedTarget.LGLEADER)?"TRUE":"FALSE",
       };
       await apiPost({action:"updateMember", id:proceedTarget.ID, member:updatedForm});
-      // Update local state — just change Status, keep ParentID and all their members intact
       setMembers(prev=>prev.map(m=>
         String(m.ID)===String(proceedTarget.ID)
           ? {...m, Status:"Close Cell"}
           : m
       ));
       setProceedTarget(null);
-      // Navigate back to the open cell screen they came from
-      // so user can see the member has moved
     } catch { setError("Couldn't proceed. Try again."); }
     finally { setProceeding(false); }
   }
 
-  // Handler for "View Cell" on LG Leader open cell members
   function handleViewLGLeaderCell(lglMember) {
     if (route.screen === "open") {
       goLGLeaderCell(route.gender, route.leader, lglMember, "open");
@@ -1326,7 +1469,6 @@ export default function App() {
     }
   }
 
-  // Handler for "Proceed to Close Cell" button
   function handleProceedToCloseClick(member) {
     setProceedTarget(member);
   }
@@ -1335,15 +1477,10 @@ export default function App() {
     ? members.filter(m=>String(m.ParentID)===String(proceedTarget.ID))
     : [];
 
-  // ── Pick Timothy handlers ────────────────────────────────────────
-  // Opens the modal for one schedule group's member list.
   function handlePickTimothy(groupMembers) {
     setTimothyTarget(groupMembers);
   }
 
-  // Saves only the members whose TIMOTHY value actually changed —
-  // uses the backend's partial-update support (updateMember only
-  // touches fields present in the posted `member` object).
   async function handleSaveTimothy(selectedIds) {
     if (!timothyTarget) return;
     setSavingTimothy(true);
@@ -1461,6 +1598,7 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 
 .screen-head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:28px;gap:16px;flex-wrap:wrap;}
 .screen-head h1{font-size:30px;font-weight:700;margin-bottom:4px;}
+.screen-head-leader{display:flex;align-items:center;gap:16px;}
 .eyebrow-sm{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);display:block;margin-bottom:4px;}
 .sub{font-size:14px;color:var(--faint);}
 .acc-boys  .screen-head h1{color:var(--blue-d);}
@@ -1494,6 +1632,7 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;}
 .leader-card{text-align:left;background:var(--raised);border:1px solid var(--line);border-radius:14px;padding:20px;cursor:pointer;display:flex;flex-direction:column;gap:8px;transition:transform .15s,box-shadow .15s;}
 .leader-card:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(31,42,36,.08);}
+.lc-avatar-row{display:flex;align-items:center;gap:10px;}
 .lc-tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);}
 .lc-name{font-size:18px;font-weight:700;}
 .lc-counts{display:flex;gap:6px;flex-wrap:wrap;}
@@ -1527,6 +1666,17 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 
 .member-list{display:flex;flex-direction:column;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;}
 .member-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;background:var(--raised);padding:14px 18px;}
+
+.avatar{border-radius:50%;object-fit:cover;flex-shrink:0;background:#EFEAE0;}
+.avatar-fallback{display:flex;align-items:center;justify-content:center;color:var(--faint);}
+
+.photo-picker{display:flex;align-items:center;gap:12px;}
+.photo-picker-preview{width:56px;height:56px;border-radius:50%;background:#EFEAE0;color:var(--faint);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;border:1px solid var(--line);}
+.photo-picker-preview img{width:100%;height:100%;object-fit:cover;}
+.photo-picker-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.btn-photo{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;font-size:13px;}
+.btn-photo-remove{display:inline-flex;align-items:center;gap:4px;background:none;border:none;color:var(--danger);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;padding:4px 6px;}
+.btn-photo-remove:hover{text-decoration:underline;}
 .member-row-lgl{background:#FAF6FF;border-left:3px solid var(--lgl);}
 .member-rank{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:var(--paper);border:1px solid var(--line);font-size:11px;font-weight:700;color:var(--faint);display:flex;align-items:center;justify-content:center;margin-top:2px;}
 .member-main{display:flex;flex-direction:column;gap:8px;flex:1;min-width:0;}
@@ -1535,24 +1685,20 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .member-loc{display:flex;align-items:center;gap:3px;font-size:12px;color:var(--faint);}
 .member-side{display:flex;align-items:center;gap:8px;flex-shrink:0;}
 
-/* LG Leader action row */
 .lgl-action-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-top:4px;}
 .btn-view-cell{display:inline-flex;align-items:center;gap:5px;background:#F2EEF9;border:1px solid #C9B8E8;color:var(--lgl-d);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:background .15s;}
 .btn-view-cell:hover{background:#E8E0F7;}
 .btn-proceed-close{display:inline-flex;align-items:center;gap:5px;background:#FFF3E0;border:1px solid #FFCC80;color:#E65100;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:background .15s;}
 .btn-proceed-close:hover{background:#FFE0B2;}
 
-/* LG Leader notice banner */
 .lgl-notice{display:flex;align-items:flex-start;gap:10px;background:#F2EEF9;border:1px solid #C9B8E8;border-radius:10px;padding:12px 16px;font-size:13px;color:var(--lgl-d);line-height:1.5;margin-bottom:24px;}
 .lgl-notice svg{flex-shrink:0;margin-top:1px;}
 
-/* Pick Timothy control (day-group header) */
 .btn-pick-timothy{display:inline-flex;align-items:center;gap:5px;background:var(--raised);border:1px dashed var(--tim);color:var(--tim-d);border-radius:20px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;transition:background .15s;}
 .btn-pick-timothy:hover{background:#FCF3DE;}
 .timothy-chip{display:inline-flex;align-items:center;gap:5px;background:#FCF3DE;border:1px solid var(--tim);color:var(--tim-d);border-radius:20px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background .15s;}
 .timothy-chip:hover{background:#F9E7BE;}
 
-/* Pick Timothy modal checklist */
 .timothy-list{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;}
 .timothy-opt{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:14px;cursor:pointer;color:var(--ink);}
 .timothy-opt-on{border-color:var(--tim);background:#FCF3DE;}
@@ -1567,7 +1713,7 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .subldr-row{background:var(--raised);display:flex;flex-direction:column;}
 .subldr-main{display:flex;align-items:center;justify-content:space-between;padding:14px 18px 8px;cursor:pointer;background:none;border:none;text-align:left;width:100%;gap:12px;}
 .subldr-main:hover{background:#F8F5EF;}
-.subldr-info{display:flex;flex-direction:column;gap:2px;}
+.subldr-info{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;}
 .subldr-name{font-size:15px;font-weight:700;}
 .subldr-loc{font-size:12px;color:var(--faint);display:flex;align-items:center;gap:3px;}
 .subldr-meta{display:flex;align-items:center;gap:8px;flex-shrink:0;}
@@ -1651,7 +1797,6 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .chip input{accent-color:var(--gold);}
 .chip-lgl input{accent-color:var(--lgl);}
 
-/* LG Leader track section in modal */
 .lgl-track-section{display:flex;flex-direction:column;gap:8px;margin-top:8px;padding-top:12px;border-top:1px solid var(--line);}
 .lgl-track-divider{display:flex;align-items:center;gap:8px;}
 .lgl-track-divider span{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--lgl-d);}
@@ -1663,16 +1808,6 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .proceed-member-chip{font-size:12px;background:#FFF3E0;border:1px solid #FFCC80;border-radius:20px;padding:3px 10px;color:#BF360C;font-weight:700;}
 .proceed-more{background:#F5F5F5;border-color:#E0E0E0;color:var(--faint);}
 
-/* ── Resize / text-size scaling ──────────────────────────────────────
-   Default ("normal") = original size, untouched.
-   "large" / "xlarge" scale up the main content area, topbar, and
-   modal popups using zoom, since every size in this stylesheet is
-   a fixed px value (not rem/em) — font-size alone wouldn't cascade
-   to children. The .shell wrapper clips horizontal overflow so a
-   zoomed box can never push the page wider than the screen; .main
-   and .modal keep their own max-width caps so zoom only makes
-   things bigger within the space already available, not wider than
-   the viewport. */
 .shell{overflow-x:hidden;}
 .main{max-width:880px;}
 .modal{width:min(460px,92vw);}
@@ -1705,6 +1840,7 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
   .stat-n{font-size:26px;}
   .stat-l{font-size:11px;line-height:1.3;}
   .lgl-action-row{flex-direction:column;align-items:flex-start;}
+  .screen-head-leader{flex-direction:column;align-items:flex-start;gap:10px;}
 }
 
 @media(max-width:380px){
