@@ -3,7 +3,7 @@ import {
   Users, UserCircle2, Plus, X, Pencil, Trash2, MapPin,
   Loader2, RefreshCw, AlertCircle, ChevronRight, UserPlus,
   Home, Circle, Calendar, Clock, FileText, ArrowUpRight, ZoomIn,
-  Camera
+  Camera, CropIcon, Check, Move
 } from "lucide-react";
 
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxQ0Lgp_NhBJgWZHbxA5q4Php-F5VaqMrfw270PBDHc-65fBmg-pOkig5m32PQYyTutig/exec";
@@ -39,33 +39,208 @@ function isLGLeader(member) {
   return toBool(member.LGLEADER);
 }
 
-// ── Read an image file, downscale it, and hand back a compact JPEG
-//    data URL. Keeps the POST body small and the upload fast.
-function fileToDataUrl(file, maxDim = 480, quality = 0.82) {
+// ── Read a file → returns { dataUrl, img } so the crop UI can reuse the img.
+function fileToRaw(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("Couldn't read file"));
     reader.onload = () => {
       const img = new Image();
-      img.onerror = () => reject(new Error("Couldn't read image"));
-      img.onload = () => {
-        let { width, height } = img;
-        if (width > height && width > maxDim) {
-          height = Math.round(height * (maxDim / width));
-          width = maxDim;
-        } else if (height >= width && height > maxDim) {
-          width = Math.round(width * (maxDim / height));
-          height = maxDim;
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width; canvas.height = height;
-        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", quality));
-      };
-      img.src = reader.result;
+      img.onerror = () => reject(new Error("Couldn't decode image"));
+      img.onload  = () => resolve({ dataUrl: reader.result, img });
+      img.src      = reader.result;
     };
     reader.readAsDataURL(file);
   });
+}
+
+// ── Crop + downscale an image element using a crop rect (0-1 fractions).
+//    Returns a compact JPEG data URL ready to POST.
+function cropImageToDataUrl(img, crop, maxDim = 480, quality = 0.82) {
+  const srcX = Math.round(crop.x * img.naturalWidth);
+  const srcY = Math.round(crop.y * img.naturalHeight);
+  const srcW = Math.round(crop.w * img.naturalWidth);
+  const srcH = Math.round(crop.h * img.naturalHeight);
+  let dstW = srcW, dstH = srcH;
+  if (dstW > dstH && dstW > maxDim) { dstH = Math.round(dstH * maxDim / dstW); dstW = maxDim; }
+  else if (dstH >= dstW && dstH > maxDim) { dstW = Math.round(dstW * maxDim / dstH); dstH = maxDim; }
+  const canvas = document.createElement("canvas");
+  canvas.width = dstW; canvas.height = dstH;
+  canvas.getContext("2d").drawImage(img, srcX, srcY, srcW, srcH, 0, 0, dstW, dstH);
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+// ── Legacy helper kept for any direct call sites.
+function fileToDataUrl(file, maxDim = 480, quality = 0.82) {
+  return fileToRaw(file).then(({ img }) =>
+    cropImageToDataUrl(img, { x:0, y:0, w:1, h:1 }, maxDim, quality)
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  CROP MODAL
+//  Shows the raw image with a draggable/resizable square crop box.
+//  Calls onCrop(dataUrl) when the user confirms, onCancel to dismiss.
+// ════════════════════════════════════════════════════════════════════
+function CropModal({ imgEl, onCrop, onCancel }) {
+  const containerRef = useRef(null);
+  // crop state in 0-1 fractions of the DISPLAYED image
+  const [box, setBox]       = useState({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
+  const [imgSize, setImgSize] = useState({ w: 0, h: 0 });
+  const dragRef = useRef(null); // { type, startX, startY, startBox }
+
+  // Draw the source image into a temp canvas so we can display it at
+  // a known size regardless of the original resolution.
+  const [previewUrl, setPreviewUrl] = useState("");
+  useEffect(() => {
+    if (!imgEl) return;
+    const MAX = 600;
+    let w = imgEl.naturalWidth, h = imgEl.naturalHeight;
+    if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+    if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; }
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    c.getContext("2d").drawImage(imgEl, 0, 0, w, h);
+    setPreviewUrl(c.toDataURL("image/jpeg", 0.92));
+    setImgSize({ w, h });
+    setBox({ x: 0.05, y: 0.05, w: 0.9, h: 0.9 });
+  }, [imgEl]);
+
+  // Pointer events for dragging/resizing
+  const onPointerDown = useCallback((e, type) => {
+    e.preventDefault();
+    const rect = containerRef.current.getBoundingClientRect();
+    dragRef.current = {
+      type,
+      startX: (e.clientX - rect.left) / rect.width,
+      startY: (e.clientY - rect.top)  / rect.height,
+      startBox: { ...box },
+    };
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup",   onPointerUp);
+  }, [box]);
+
+  const onPointerMove = useCallback((e) => {
+    if (!dragRef.current || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const dx = (e.clientX - rect.left) / rect.width  - dragRef.current.startX;
+    const dy = (e.clientY - rect.top)  / rect.height - dragRef.current.startY;
+    const { type, startBox: s } = dragRef.current;
+    let { x, y, w, h } = s;
+    const MIN = 0.05;
+
+    if (type === "move") {
+      x = Math.max(0, Math.min(1 - w, s.x + dx));
+      y = Math.max(0, Math.min(1 - h, s.y + dy));
+    } else {
+      if (type === "nw") { x = Math.max(0, Math.min(s.x + s.w - MIN, s.x + dx)); y = Math.max(0, Math.min(s.y + s.h - MIN, s.y + dy)); w = s.w + s.x - x; h = s.h + s.y - y; }
+      if (type === "ne") { w = Math.max(MIN, Math.min(1 - s.x, s.w + dx)); y = Math.max(0, Math.min(s.y + s.h - MIN, s.y + dy)); h = s.h + s.y - y; }
+      if (type === "sw") { x = Math.max(0, Math.min(s.x + s.w - MIN, s.x + dx)); w = s.w + s.x - x; h = Math.max(MIN, Math.min(1 - s.y, s.h + dy)); }
+      if (type === "se") { w = Math.max(MIN, Math.min(1 - s.x, s.w + dx)); h = Math.max(MIN, Math.min(1 - s.y, s.h + dy)); }
+      if (type === "n")  { y = Math.max(0, Math.min(s.y + s.h - MIN, s.y + dy)); h = s.h + s.y - y; }
+      if (type === "s")  { h = Math.max(MIN, Math.min(1 - s.y, s.h + dy)); }
+      if (type === "e")  { w = Math.max(MIN, Math.min(1 - s.x, s.w + dx)); }
+      if (type === "w")  { x = Math.max(0, Math.min(s.x + s.w - MIN, s.x + dx)); w = s.w + s.x - x; }
+    }
+    setBox({ x, y, w, h });
+  }, []);
+
+  const onPointerUp = useCallback(() => {
+    dragRef.current = null;
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup",   onPointerUp);
+  }, [onPointerMove]);
+
+  function handleCrop() {
+    const dataUrl = cropImageToDataUrl(imgEl, box);
+    onCrop(dataUrl);
+  }
+
+  if (!previewUrl) return null;
+
+  const pct = (v) => `${(v * 100).toFixed(2)}%`;
+  const handleStyle = {
+    position:"absolute", width:14, height:14,
+    background:"#fff", border:"2px solid #22c55e",
+    borderRadius:3, transform:"translate(-50%,-50%)", zIndex:3,
+  };
+  const edgeStyle = {
+    position:"absolute", background:"transparent", zIndex:2,
+  };
+
+  return (
+    <div className="overlay crop-overlay" style={{zIndex:1100}}>
+      <div className="modal crop-modal">
+        <div className="modal-head">
+          <h2 style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:18}}>✂️</span> Crop Photo
+          </h2>
+          <button className="icon-btn" onClick={onCancel}><X size={18}/></button>
+        </div>
+        <div className="crop-body">
+          <p className="crop-hint">Drag the box or pull its edges to frame the photo. Then tap <strong>Use this crop</strong>.</p>
+          <div
+            ref={containerRef}
+            className="crop-stage"
+            style={{ position:"relative", userSelect:"none", touchAction:"none" }}
+          >
+            <img src={previewUrl} alt="Crop preview" className="crop-preview-img"
+              style={{ display:"block", width:"100%", height:"auto", borderRadius:8 }} />
+
+            {/* dark overlay outside crop box */}
+            <div style={{ position:"absolute", inset:0, pointerEvents:"none" }}>
+              <div style={{ position:"absolute", top:0, left:0, right:0, height:pct(box.y), background:"rgba(0,0,0,0.45)" }}/>
+              <div style={{ position:"absolute", top:pct(box.y), left:0, width:pct(box.x), height:pct(box.h), background:"rgba(0,0,0,0.45)" }}/>
+              <div style={{ position:"absolute", top:pct(box.y), left:pct(box.x+box.w), right:0, height:pct(box.h), background:"rgba(0,0,0,0.45)" }}/>
+              <div style={{ position:"absolute", top:pct(box.y+box.h), left:0, right:0, bottom:0, background:"rgba(0,0,0,0.45)" }}/>
+            </div>
+
+            {/* crop border */}
+            <div style={{
+              position:"absolute",
+              left:pct(box.x), top:pct(box.y),
+              width:pct(box.w), height:pct(box.h),
+              border:"2px solid #22c55e",
+              boxSizing:"border-box", cursor:"move", zIndex:2,
+            }} onPointerDown={e=>onPointerDown(e,"move")}>
+              {/* rule-of-thirds grid */}
+              {[1/3,2/3].map(f=>(
+                <React.Fragment key={f}>
+                  <div style={{position:"absolute",top:0,bottom:0,left:`${f*100}%`,width:1,background:"rgba(255,255,255,0.3)"}}/>
+                  <div style={{position:"absolute",left:0,right:0,top:`${f*100}%`,height:1,background:"rgba(255,255,255,0.3)"}}/>
+                </React.Fragment>
+              ))}
+            </div>
+
+            {/* corner handles */}
+            {[["nw",box.x,box.y,"nwse-resize"],["ne",box.x+box.w,box.y,"nesw-resize"],
+              ["sw",box.x,box.y+box.h,"nesw-resize"],["se",box.x+box.w,box.y+box.h,"nwse-resize"]
+            ].map(([t,lx,ly,cur])=>(
+              <div key={t} style={{...handleStyle,left:pct(lx),top:pct(ly),cursor:cur}}
+                onPointerDown={e=>onPointerDown(e,t)}/>
+            ))}
+            {/* edge handles */}
+            {[
+              ["n", box.x+box.w/2, box.y, "ns-resize"],
+              ["s", box.x+box.w/2, box.y+box.h, "ns-resize"],
+              ["e", box.x+box.w,   box.y+box.h/2, "ew-resize"],
+              ["w", box.x,         box.y+box.h/2, "ew-resize"],
+            ].map(([t,lx,ly,cur])=>(
+              <div key={t} style={{...handleStyle,left:pct(lx),top:pct(ly),cursor:cur,borderRadius:"50%"}}
+                onPointerDown={e=>onPointerDown(e,t)}/>
+            ))}
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button type="button" className="btn-ghost" onClick={onCancel}>Cancel</button>
+          <button type="button" className="btn-primary" onClick={handleCrop}
+            style={{background:"#16a34a",borderColor:"#16a34a"}}>
+            ✅ Use this crop
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function countLifegroups(list) {
