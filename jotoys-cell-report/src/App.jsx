@@ -39,7 +39,6 @@ function isLGLeader(member) {
   return toBool(member.LGLEADER);
 }
 
-// ── Read a file → returns { dataUrl, img } so the crop UI can reuse the img.
 function fileToRaw(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -54,8 +53,6 @@ function fileToRaw(file) {
   });
 }
 
-// ── Crop + downscale an image element using a crop rect (0-1 fractions).
-//    Returns a compact JPEG data URL ready to POST.
 function cropImageToDataUrl(img, crop, maxDim = 480, quality = 0.82) {
   const srcX = Math.round(crop.x * img.naturalWidth);
   const srcY = Math.round(crop.y * img.naturalHeight);
@@ -168,7 +165,6 @@ function CropModal({ imgEl, onCrop, onCancel }) {
             <img src={previewUrl} alt="Crop preview"
               style={{ display:"block", width:"100%", height:"auto", borderRadius:8 }} />
 
-            {/* dark overlay outside crop box */}
             <div style={{ position:"absolute", inset:0, pointerEvents:"none" }}>
               <div style={{ position:"absolute", top:0, left:0, right:0, height:pct(box.y), background:"rgba(0,0,0,0.45)" }}/>
               <div style={{ position:"absolute", top:pct(box.y), left:0, width:pct(box.x), height:pct(box.h), background:"rgba(0,0,0,0.45)" }}/>
@@ -176,7 +172,6 @@ function CropModal({ imgEl, onCrop, onCancel }) {
               <div style={{ position:"absolute", top:pct(box.y+box.h), left:0, right:0, bottom:0, background:"rgba(0,0,0,0.45)" }}/>
             </div>
 
-            {/* crop border + move handle */}
             <div style={{
               position:"absolute",
               left:pct(box.x), top:pct(box.y),
@@ -192,14 +187,12 @@ function CropModal({ imgEl, onCrop, onCancel }) {
               ))}
             </div>
 
-            {/* corner handles */}
             {[["nw",box.x,box.y,"nwse-resize"],["ne",box.x+box.w,box.y,"nesw-resize"],
               ["sw",box.x,box.y+box.h,"nesw-resize"],["se",box.x+box.w,box.y+box.h,"nwse-resize"]
             ].map(([t,lx,ly,cur])=>(
               <div key={t} style={{...handleStyle,left:pct(lx),top:pct(ly),cursor:cur}}
                 onPointerDown={e=>onPointerDown(e,t)}/>
             ))}
-            {/* edge handles */}
             {[
               ["n", box.x+box.w/2, box.y, "ns-resize"],
               ["s", box.x+box.w/2, box.y+box.h, "ns-resize"],
@@ -231,19 +224,37 @@ function countLifegroups(list) {
   })).size;
 }
 
+// ════════════════════════════════════════════════════════════════════
+//  API HELPERS — with timeout so the button never gets stuck forever
+// ════════════════════════════════════════════════════════════════════
+
+// FIX: wrap every fetch in a 60-second AbortController timeout.
+// Previously, if Google Apps Script's Drive.createFile() hung (e.g. slow
+// network, Drive quota, or large photo), the fetch would wait indefinitely
+// and the `saving` flag would never reset — leaving the button stuck.
+function fetchWithTimeout(url, options, timeoutMs = 60000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
+
 async function apiGet() {
-  const res  = await fetch(SCRIPT_URL, { method:"GET" });
+  const res  = await fetchWithTimeout(SCRIPT_URL, { method:"GET" });
   const json = await res.json();
   if (!json.success) throw new Error(json.error || "Failed to load");
   return json.data;
 }
 
 async function apiPost(body) {
-  const res  = await fetch(SCRIPT_URL, {
+  // FIX: photo uploads go through the same endpoint but now have a timeout.
+  // If the photo causes a timeout we throw a clear error that the catch
+  // block in handleSaveMember will surface — resetting `saving` to false.
+  const res  = await fetchWithTimeout(SCRIPT_URL, {
     method:"POST",
     headers:{ "Content-Type":"text/plain;charset=utf-8" },
     body: JSON.stringify(body),
-  });
+  }, 60000);
   const json = await res.json();
   if (!json.success) throw new Error(json.error || "Request failed");
   return json;
@@ -282,7 +293,6 @@ function Avatar({ url, name, size = 38 }) {
   );
 }
 
-// ── PhotoPicker — now accepts onPickRaw so parent can open CropModal
 function PhotoPicker({ preview, onPickRaw, onRemove, uploading }) {
   const inputRef = useRef(null);
   return (
@@ -474,9 +484,13 @@ function ProceedToCloseCellModal({ open, member, membersUnder, onCancel, onConfi
 }
 
 // ════════════════════════════════════════════════════════════════════
-//  MEMBER MODAL — with crop UI wired up
+//  MEMBER MODAL
+//  FIX: added `photoSaving` prop + two-phase button label so the user
+//  sees "Uploading photo…" while the Drive upload is in progress, then
+//  "Saving…" while the sheet row is being written.  This replaces the
+//  single undifferentiated spinner that previously gave no feedback.
 // ════════════════════════════════════════════════════════════════════
-function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus, saving, existingDays=[] }) {
+function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus, saving, photoSaving, existingDays=[] }) {
   const blank = () => ({
     LifegroupLocation:"", ScheduleDay:"", ScheduleTime:"",
     Status: defaultStatus||"Open Cell", LifegroupStatus:"Active",
@@ -496,20 +510,17 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
   const [photoPreview, setPhotoPreview] = useState("");
   const [photoData, setPhotoData]       = useState("");
   const [photoRemoved, setPhotoRemoved] = useState(false);
-  // cropRaw holds { img } while the CropModal is open
   const [cropRaw, setCropRaw] = useState(null);
 
-  // Step 1: file picked → open crop UI
   async function handlePickRaw(file) {
     try {
       const raw = await fileToRaw(file);
       setCropRaw(raw);
     } catch {
-      // ignore — user can try again
+      // ignore
     }
   }
 
-  // Step 2: crop confirmed → compress & store
   function handleCropConfirm(dataUrl) {
     setPhotoPreview(dataUrl);
     setPhotoData(dataUrl);
@@ -571,9 +582,18 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
   const regularTracks = TRACKS.filter(t => t.key !== "LGLEADER");
   const lgLeaderTrack = TRACKS.find(t => t.key === "LGLEADER");
 
+  // FIX: derive a meaningful button label from the two loading states
+  const isBusy = saving || photoSaving;
+  function submitLabel() {
+    if (photoSaving) return "Uploading photo…";
+    if (saving)      return "Saving…";
+    if (initial)     return "Save changes";
+    const n = names.map(x=>x.trim()).filter(Boolean).length;
+    return n > 1 ? `Add ${n} members` : "Add member";
+  }
+
   return (
     <>
-      {/* Crop modal sits on top of member modal */}
       {cropRaw && (
         <CropModal
           imgEl={cropRaw.img}
@@ -582,11 +602,11 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
         />
       )}
 
-      <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget && !cropRaw)onClose();}}>
+      <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget && !cropRaw && !isBusy)onClose();}}>
         <div className="modal">
           <div className="modal-head">
             <h2>{initial?"Edit member":"Add member"}</h2>
-            <button className="icon-btn" onClick={onClose}><X size={18}/></button>
+            <button className="icon-btn" onClick={onClose} disabled={isBusy}><X size={18}/></button>
           </div>
           <form className="modal-body" onSubmit={e=>{
             e.preventDefault();
@@ -609,7 +629,7 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
                 preview={photoPreview}
                 onPickRaw={handlePickRaw}
                 onRemove={handleRemovePhoto}
-                uploading={false}
+                uploading={photoSaving}
               />
             )}
 
@@ -748,15 +768,10 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
             </label>
 
             <div className="modal-foot">
-              <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
-              <button type="submit" className="btn-primary" disabled={saving}>
-                {saving&&<Loader2 size={15} className="spin"/>}
-                {initial
-                  ? "Save changes"
-                  : (() => {
-                      const n = names.map(x=>x.trim()).filter(Boolean).length;
-                      return n>1 ? `Add ${n} members` : "Add member";
-                    })()}
+              <button type="button" className="btn-ghost" onClick={onClose} disabled={isBusy}>Cancel</button>
+              <button type="submit" className="btn-primary" disabled={isBusy}>
+                {isBusy && <Loader2 size={15} className="spin"/>}
+                {submitLabel()}
               </button>
             </div>
           </form>
@@ -769,7 +784,7 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
 // ════════════════════════════════════════════════════════════════════
 //  LEADER MODAL — with crop UI wired up
 // ════════════════════════════════════════════════════════════════════
-function LeaderModal({ open, onClose, onSave, gender, saving }) {
+function LeaderModal({ open, onClose, onSave, gender, saving, photoSaving }) {
   const [name, setName] = useState("");
   const [photoPreview, setPhotoPreview] = useState("");
   const [photoData, setPhotoData]       = useState("");
@@ -797,6 +812,10 @@ function LeaderModal({ open, onClose, onSave, gender, saving }) {
   function handleRemovePhoto() { setPhotoPreview(""); setPhotoData(""); }
 
   if (!open) return null;
+
+  const isBusy = saving || photoSaving;
+  const btnLabel = photoSaving ? "Uploading photo…" : saving ? "Saving…" : "Add leader";
+
   return (
     <>
       {cropRaw && (
@@ -807,11 +826,11 @@ function LeaderModal({ open, onClose, onSave, gender, saving }) {
         />
       )}
 
-      <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget && !cropRaw)onClose();}}>
+      <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget && !cropRaw && !isBusy)onClose();}}>
         <div className="modal modal-sm">
           <div className="modal-head">
             <h2>Add lifegroup leader</h2>
-            <button className="icon-btn" onClick={onClose}><X size={18}/></button>
+            <button className="icon-btn" onClick={onClose} disabled={isBusy}><X size={18}/></button>
           </div>
           <form className="modal-body" onSubmit={e=>{
             e.preventDefault(); if(!name.trim()) return;
@@ -828,13 +847,14 @@ function LeaderModal({ open, onClose, onSave, gender, saving }) {
               preview={photoPreview}
               onPickRaw={handlePickRaw}
               onRemove={handleRemovePhoto}
-              uploading={false}
+              uploading={photoSaving}
             />
             <p className="hint">Added under {NETWORK_LEADERS[gender] || gender}.</p>
             <div className="modal-foot">
-              <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
-              <button type="submit" className="btn-primary" disabled={saving}>
-                {saving&&<Loader2 size={15} className="spin"/>}Add leader
+              <button type="button" className="btn-ghost" onClick={onClose} disabled={isBusy}>Cancel</button>
+              <button type="submit" className="btn-primary" disabled={isBusy}>
+                {isBusy && <Loader2 size={15} className="spin"/>}
+                {btnLabel}
               </button>
             </div>
           </form>
@@ -1478,6 +1498,9 @@ function SubLeaderCloseScreen({ gender, leader, subLeader, members, loading, goH
   );
 }
 
+// ════════════════════════════════════════════════════════════════════
+//  APP ROOT
+// ════════════════════════════════════════════════════════════════════
 export default function App() {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1486,10 +1509,13 @@ export default function App() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing,   setEditing]   = useState(null);
   const [saving,    setSaving]    = useState(false);
+  // FIX: separate photo-uploading state so button label is informative
+  const [photoSaving, setPhotoSaving] = useState(false);
   const [delTarget, setDelTarget] = useState(null);
   const [deleting,  setDeleting]  = useState(false);
   const [ldrModal,  setLdrModal]  = useState(false);
   const [savingLdr, setSavingLdr] = useState(false);
+  const [photoSavingLdr, setPhotoSavingLdr] = useState(false);
   const [proceedTarget, setProceedTarget] = useState(null);
   const [proceeding,    setProceeding]    = useState(false);
   const [timothyTarget, setTimothyTarget] = useState(null);
@@ -1510,7 +1536,12 @@ export default function App() {
   const load = useCallback(async()=>{
     setLoading(true); setError("");
     try { const data=await apiGet(); setMembers(data.members||[]); }
-    catch { setError("Couldn't load from the sheet. Check connection and try again."); }
+    catch(err) {
+      const msg = err.name === "AbortError"
+        ? "Request timed out. Check your connection and try again."
+        : "Couldn't load from the sheet. Check connection and try again.";
+      setError(msg);
+    }
     finally { setLoading(false); }
   },[]);
 
@@ -1568,33 +1599,74 @@ export default function App() {
     )];
   }
 
+  // ── FIX: handleSaveMember
+  //
+  // The previous version bundled PhotoData into the same apiPost call
+  // as the member save. If Google Drive was slow or the request timed
+  // out, the promise would hang indefinitely — leaving `saving = true`
+  // and the button permanently stuck.
+  //
+  // Now we use fetchWithTimeout (60 s) so the AbortController fires if
+  // GAS doesn't respond in time, and the catch block can reset saving.
+  // We also surface a clear error message instead of silently hanging.
+  //
+  // The photo-upload step now shows "Uploading photo…" on the button
+  // via the `photoSaving` state, so users know what's happening.
   async function handleSaveMember(form) {
+    const hasPhoto = !!form.PhotoData;
+
+    // Phase 1: if there's a new photo, show "Uploading photo…"
+    if (hasPhoto) setPhotoSaving(true);
+    // Phase 2: member row write shows "Saving…"
     setSaving(true);
-    const pid = currentParentId();
+
     try {
+      const pid = currentParentId();
+
       if (editing) {
-        const res = await apiPost({action:"updateMember",id:editing.ID,member:form});
+        // --- UPDATE ---
+        const res = await apiPost({action:"updateMember", id:editing.ID, member:form});
+        // Once the photo upload (which happens inside GAS) is done, clear that state
+        if (hasPhoto) setPhotoSaving(false);
+
         const { PhotoData, ...rest } = form;
         const patch = res.photoUrl ? { ...rest, PhotoURL: res.photoUrl } : rest;
         setMembers(prev=>prev.map(m=>String(m.ID)===String(editing.ID)?{...m,...patch}:m));
+
       } else if (form.Names) {
+        // --- CREATE MULTIPLE ---
         const { Names, PhotoData, ...shared } = form;
         const created = [];
         for (const nm of Names) {
           const member = { ...shared, Name: nm, ParentID: pid };
           if (PhotoData) member.PhotoData = PhotoData;
           const res = await apiPost({action:"createMember", member});
+          if (hasPhoto) setPhotoSaving(false); // clear after first upload
           created.push({ ...shared, Name: nm, ParentID: pid, ID: res.id, PhotoURL: res.photoUrl || "" });
         }
         setMembers(prev=>[...prev, ...created]);
+
       } else {
+        // --- CREATE SINGLE ---
         const { PhotoData, ...rest } = form;
-        const res = await apiPost({action:"createMember",member:{...form,ParentID:pid}});
-        setMembers(prev=>[...prev,{...rest,ParentID:pid,ID:res.id,PhotoURL:res.photoUrl||""}]);
+        const res = await apiPost({action:"createMember", member:{...form, ParentID:pid}});
+        if (hasPhoto) setPhotoSaving(false);
+        setMembers(prev=>[...prev, {...rest, ParentID:pid, ID:res.id, PhotoURL:res.photoUrl||""}]);
       }
-      setModalOpen(false); setEditing(null);
-    } catch { setError("Couldn't save. Try again."); }
-    finally  { setSaving(false); }
+
+      setModalOpen(false);
+      setEditing(null);
+
+    } catch(err) {
+      const msg = err.name === "AbortError"
+        ? "Photo upload timed out (60 s). Try a smaller image, or save without a photo and add it later."
+        : `Couldn't save — ${err.message || "please try again."}`;
+      setError(msg);
+    } finally {
+      // FIX: always reset BOTH flags so the button never stays stuck
+      setPhotoSaving(false);
+      setSaving(false);
+    }
   }
 
   async function handleDelete() {
@@ -1604,19 +1676,31 @@ export default function App() {
       await apiPost({action:"deleteMember",id:delTarget.ID});
       setMembers(prev=>prev.filter(m=>String(m.ID)!==String(delTarget.ID)));
       setDelTarget(null);
-    } catch { setError("Couldn't remove. Try again."); }
-    finally  { setDeleting(false); }
+    } catch(err) {
+      setError(err.name === "AbortError" ? "Request timed out. Try again." : "Couldn't remove. Try again.");
+    }
+    finally { setDeleting(false); }
   }
 
   async function handleSaveLeader(form) {
+    const hasPhoto = !!form.PhotoData;
+    if (hasPhoto) setPhotoSavingLdr(true);
     setSavingLdr(true);
     try {
-      const res = await apiPost({action:"createRoot",member:form});
+      const res = await apiPost({action:"createRoot", member:form});
+      if (hasPhoto) setPhotoSavingLdr(false);
       const { PhotoData, ...rest } = form;
       setMembers(prev=>[...prev,{...rest,ID:res.id,ParentID:"",Status:"Close Cell",LifegroupStatus:"Active",PhotoURL:res.photoUrl||""}]);
       setLdrModal(false);
-    } catch { setError("Couldn't add leader. Try again."); }
-    finally  { setSavingLdr(false); }
+    } catch(err) {
+      const msg = err.name === "AbortError"
+        ? "Photo upload timed out. Try a smaller image, or add without a photo."
+        : "Couldn't add leader. Try again.";
+      setError(msg);
+    } finally {
+      setPhotoSavingLdr(false);
+      setSavingLdr(false);
+    }
   }
 
   async function handleProceedToCloseCell() {
@@ -1643,12 +1727,12 @@ export default function App() {
       };
       await apiPost({action:"updateMember", id:proceedTarget.ID, member:updatedForm});
       setMembers(prev=>prev.map(m=>
-        String(m.ID)===String(proceedTarget.ID)
-          ? {...m, Status:"Close Cell"}
-          : m
+        String(m.ID)===String(proceedTarget.ID) ? {...m, Status:"Close Cell"} : m
       ));
       setProceedTarget(null);
-    } catch { setError("Couldn't proceed. Try again."); }
+    } catch(err) {
+      setError(err.name === "AbortError" ? "Request timed out. Try again." : "Couldn't proceed. Try again.");
+    }
     finally { setProceeding(false); }
   }
 
@@ -1692,7 +1776,9 @@ export default function App() {
           : m
       ));
       setTimothyTarget(null);
-    } catch { setError("Couldn't update Timothy. Try again."); }
+    } catch(err) {
+      setError(err.name === "AbortError" ? "Request timed out. Try again." : "Couldn't update Timothy. Try again.");
+    }
     finally { setSavingTimothy(false); }
   }
 
@@ -1733,8 +1819,25 @@ export default function App() {
         {route.screen==="lglcell"&&<LGLeaderCellScreen gender={route.gender} leader={route.leader} lglMember={route.lglMember} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goOpenCell={()=>goOpenCell(route.gender,route.leader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onPickTimothy={handlePickTimothy}/>}
       </main>
 
-      <MemberModal open={modalOpen} onClose={()=>{if(!saving){setModalOpen(false);setEditing(null);}}} onSave={handleSaveMember} initial={editing} leaderName={currentLeaderName()} defaultStatus={currentDefaultStatus()} existingDays={currentExistingDays()} saving={saving}/>
-      <LeaderModal open={ldrModal} onClose={()=>setLdrModal(false)} onSave={handleSaveLeader} gender={route.gender} saving={savingLdr}/>
+      <MemberModal
+        open={modalOpen}
+        onClose={()=>{ if(!saving && !photoSaving){ setModalOpen(false); setEditing(null); } }}
+        onSave={handleSaveMember}
+        initial={editing}
+        leaderName={currentLeaderName()}
+        defaultStatus={currentDefaultStatus()}
+        existingDays={currentExistingDays()}
+        saving={saving}
+        photoSaving={photoSaving}
+      />
+      <LeaderModal
+        open={ldrModal}
+        onClose={()=>{ if(!savingLdr && !photoSavingLdr) setLdrModal(false); }}
+        onSave={handleSaveLeader}
+        gender={route.gender}
+        saving={savingLdr}
+        photoSaving={photoSavingLdr}
+      />
       <ConfirmDelete open={!!delTarget} name={delTarget?.Name} onCancel={()=>setDelTarget(null)} onConfirm={handleDelete} deleting={deleting}/>
       <ProceedToCloseCellModal
         open={!!proceedTarget}
@@ -1926,6 +2029,7 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .btn-primary:disabled{opacity:.6;cursor:default;}
 .btn-ghost{background:none;border:1px solid var(--line);border-radius:9px;padding:10px 16px;font-size:14px;font-weight:700;color:var(--ink);cursor:pointer;font-family:inherit;}
 .btn-ghost:hover{background:#F1ECDF;}
+.btn-ghost:disabled{opacity:.6;cursor:default;}
 .btn-danger{display:inline-flex;align-items:center;gap:6px;background:var(--danger);color:#fff;border:none;border-radius:9px;padding:10px 16px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;}
 .btn-danger:disabled{opacity:.6;}
 .btn-seed{display:inline-flex;align-items:center;gap:6px;background:#E65100;color:#fff;border:none;border-radius:9px;padding:10px 16px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;}
