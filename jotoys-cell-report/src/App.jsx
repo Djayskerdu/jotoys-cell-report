@@ -3,7 +3,7 @@ import {
   Users, UserCircle2, Plus, X, Pencil, Trash2, MapPin,
   Loader2, RefreshCw, AlertCircle, ChevronRight, UserPlus,
   Home, Circle, Calendar, Clock, FileText, ArrowUpRight, ZoomIn,
-  Camera, CropIcon, Check, Move
+  Camera, Check, Move
 } from "lucide-react";
 
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxQ0Lgp_NhBJgWZHbxA5q4Php-F5VaqMrfw270PBDHc-65fBmg-pOkig5m32PQYyTutig/exec";
@@ -70,28 +70,15 @@ function cropImageToDataUrl(img, crop, maxDim = 480, quality = 0.82) {
   return canvas.toDataURL("image/jpeg", quality);
 }
 
-// ── Legacy helper kept for any direct call sites.
-function fileToDataUrl(file, maxDim = 480, quality = 0.82) {
-  return fileToRaw(file).then(({ img }) =>
-    cropImageToDataUrl(img, { x:0, y:0, w:1, h:1 }, maxDim, quality)
-  );
-}
-
 // ════════════════════════════════════════════════════════════════════
 //  CROP MODAL
-//  Shows the raw image with a draggable/resizable square crop box.
-//  Calls onCrop(dataUrl) when the user confirms, onCancel to dismiss.
 // ════════════════════════════════════════════════════════════════════
 function CropModal({ imgEl, onCrop, onCancel }) {
   const containerRef = useRef(null);
-  // crop state in 0-1 fractions of the DISPLAYED image
   const [box, setBox]       = useState({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
-  const [imgSize, setImgSize] = useState({ w: 0, h: 0 });
-  const dragRef = useRef(null); // { type, startX, startY, startBox }
-
-  // Draw the source image into a temp canvas so we can display it at
-  // a known size regardless of the original resolution.
   const [previewUrl, setPreviewUrl] = useState("");
+  const dragRef = useRef(null);
+
   useEffect(() => {
     if (!imgEl) return;
     const MAX = 600;
@@ -102,11 +89,39 @@ function CropModal({ imgEl, onCrop, onCancel }) {
     c.width = w; c.height = h;
     c.getContext("2d").drawImage(imgEl, 0, 0, w, h);
     setPreviewUrl(c.toDataURL("image/jpeg", 0.92));
-    setImgSize({ w, h });
     setBox({ x: 0.05, y: 0.05, w: 0.9, h: 0.9 });
   }, [imgEl]);
 
-  // Pointer events for dragging/resizing
+  const onPointerMove = useCallback((e) => {
+    if (!dragRef.current || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const dx = (e.clientX - rect.left) / rect.width  - dragRef.current.startX;
+    const dy = (e.clientY - rect.top)  / rect.height - dragRef.current.startY;
+    const { type, startBox: s } = dragRef.current;
+    let { x, y, w, h } = s;
+    const MIN = 0.05;
+    if (type === "move") {
+      x = Math.max(0, Math.min(1 - w, s.x + dx));
+      y = Math.max(0, Math.min(1 - h, s.y + dy));
+    } else {
+      if (type === "nw") { x = Math.max(0, Math.min(s.x+s.w-MIN, s.x+dx)); y = Math.max(0, Math.min(s.y+s.h-MIN, s.y+dy)); w = s.w+s.x-x; h = s.h+s.y-y; }
+      if (type === "ne") { w = Math.max(MIN, Math.min(1-s.x, s.w+dx)); y = Math.max(0, Math.min(s.y+s.h-MIN, s.y+dy)); h = s.h+s.y-y; }
+      if (type === "sw") { x = Math.max(0, Math.min(s.x+s.w-MIN, s.x+dx)); w = s.w+s.x-x; h = Math.max(MIN, Math.min(1-s.y, s.h+dy)); }
+      if (type === "se") { w = Math.max(MIN, Math.min(1-s.x, s.w+dx)); h = Math.max(MIN, Math.min(1-s.y, s.h+dy)); }
+      if (type === "n")  { y = Math.max(0, Math.min(s.y+s.h-MIN, s.y+dy)); h = s.h+s.y-y; }
+      if (type === "s")  { h = Math.max(MIN, Math.min(1-s.y, s.h+dy)); }
+      if (type === "e")  { w = Math.max(MIN, Math.min(1-s.x, s.w+dx)); }
+      if (type === "w")  { x = Math.max(0, Math.min(s.x+s.w-MIN, s.x+dx)); w = s.w+s.x-x; }
+    }
+    setBox({ x, y, w, h });
+  }, []);
+
+  const onPointerUp = useCallback(() => {
+    dragRef.current = null;
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup",   onPointerUp);
+  }, [onPointerMove]);
+
   const onPointerDown = useCallback((e, type) => {
     e.preventDefault();
     const rect = containerRef.current.getBoundingClientRect();
@@ -118,38 +133,7 @@ function CropModal({ imgEl, onCrop, onCancel }) {
     };
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup",   onPointerUp);
-  }, [box]);
-
-  const onPointerMove = useCallback((e) => {
-    if (!dragRef.current || !containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const dx = (e.clientX - rect.left) / rect.width  - dragRef.current.startX;
-    const dy = (e.clientY - rect.top)  / rect.height - dragRef.current.startY;
-    const { type, startBox: s } = dragRef.current;
-    let { x, y, w, h } = s;
-    const MIN = 0.05;
-
-    if (type === "move") {
-      x = Math.max(0, Math.min(1 - w, s.x + dx));
-      y = Math.max(0, Math.min(1 - h, s.y + dy));
-    } else {
-      if (type === "nw") { x = Math.max(0, Math.min(s.x + s.w - MIN, s.x + dx)); y = Math.max(0, Math.min(s.y + s.h - MIN, s.y + dy)); w = s.w + s.x - x; h = s.h + s.y - y; }
-      if (type === "ne") { w = Math.max(MIN, Math.min(1 - s.x, s.w + dx)); y = Math.max(0, Math.min(s.y + s.h - MIN, s.y + dy)); h = s.h + s.y - y; }
-      if (type === "sw") { x = Math.max(0, Math.min(s.x + s.w - MIN, s.x + dx)); w = s.w + s.x - x; h = Math.max(MIN, Math.min(1 - s.y, s.h + dy)); }
-      if (type === "se") { w = Math.max(MIN, Math.min(1 - s.x, s.w + dx)); h = Math.max(MIN, Math.min(1 - s.y, s.h + dy)); }
-      if (type === "n")  { y = Math.max(0, Math.min(s.y + s.h - MIN, s.y + dy)); h = s.h + s.y - y; }
-      if (type === "s")  { h = Math.max(MIN, Math.min(1 - s.y, s.h + dy)); }
-      if (type === "e")  { w = Math.max(MIN, Math.min(1 - s.x, s.w + dx)); }
-      if (type === "w")  { x = Math.max(0, Math.min(s.x + s.w - MIN, s.x + dx)); w = s.w + s.x - x; }
-    }
-    setBox({ x, y, w, h });
-  }, []);
-
-  const onPointerUp = useCallback(() => {
-    dragRef.current = null;
-    window.removeEventListener("pointermove", onPointerMove);
-    window.removeEventListener("pointerup",   onPointerUp);
-  }, [onPointerMove]);
+  }, [box, onPointerMove, onPointerUp]);
 
   function handleCrop() {
     const dataUrl = cropImageToDataUrl(imgEl, box);
@@ -164,9 +148,6 @@ function CropModal({ imgEl, onCrop, onCancel }) {
     background:"#fff", border:"2px solid #22c55e",
     borderRadius:3, transform:"translate(-50%,-50%)", zIndex:3,
   };
-  const edgeStyle = {
-    position:"absolute", background:"transparent", zIndex:2,
-  };
 
   return (
     <div className="overlay crop-overlay" style={{zIndex:1100}}>
@@ -177,14 +158,14 @@ function CropModal({ imgEl, onCrop, onCancel }) {
           </h2>
           <button className="icon-btn" onClick={onCancel}><X size={18}/></button>
         </div>
-        <div className="crop-body">
-          <p className="crop-hint">Drag the box or pull its edges to frame the photo. Then tap <strong>Use this crop</strong>.</p>
+        <div className="crop-body" style={{padding:"0 22px 16px"}}>
+          <p className="hint" style={{marginBottom:10}}>Drag the box or pull its edges to frame the photo. Then tap <strong>Use this crop</strong>.</p>
           <div
             ref={containerRef}
             className="crop-stage"
             style={{ position:"relative", userSelect:"none", touchAction:"none" }}
           >
-            <img src={previewUrl} alt="Crop preview" className="crop-preview-img"
+            <img src={previewUrl} alt="Crop preview"
               style={{ display:"block", width:"100%", height:"auto", borderRadius:8 }} />
 
             {/* dark overlay outside crop box */}
@@ -195,7 +176,7 @@ function CropModal({ imgEl, onCrop, onCancel }) {
               <div style={{ position:"absolute", top:pct(box.y+box.h), left:0, right:0, bottom:0, background:"rgba(0,0,0,0.45)" }}/>
             </div>
 
-            {/* crop border */}
+            {/* crop border + move handle */}
             <div style={{
               position:"absolute",
               left:pct(box.x), top:pct(box.y),
@@ -203,7 +184,6 @@ function CropModal({ imgEl, onCrop, onCancel }) {
               border:"2px solid #22c55e",
               boxSizing:"border-box", cursor:"move", zIndex:2,
             }} onPointerDown={e=>onPointerDown(e,"move")}>
-              {/* rule-of-thirds grid */}
               {[1/3,2/3].map(f=>(
                 <React.Fragment key={f}>
                   <div style={{position:"absolute",top:0,bottom:0,left:`${f*100}%`,width:1,background:"rgba(255,255,255,0.3)"}}/>
@@ -231,7 +211,7 @@ function CropModal({ imgEl, onCrop, onCancel }) {
             ))}
           </div>
         </div>
-        <div className="modal-foot">
+        <div className="modal-foot" style={{padding:"0 22px 22px"}}>
           <button type="button" className="btn-ghost" onClick={onCancel}>Cancel</button>
           <button type="button" className="btn-primary" onClick={handleCrop}
             style={{background:"#16a34a",borderColor:"#16a34a"}}>
@@ -283,8 +263,6 @@ function TrackList({ member }) {
   );
 }
 
-// ── Avatar — shows a member's photo, or a fallback icon if there's no
-//    PhotoURL yet or the image fails to load.
 function Avatar({ url, name, size = 38 }) {
   const [broken, setBroken] = useState(false);
   useEffect(() => { setBroken(false); }, [url]);
@@ -304,8 +282,8 @@ function Avatar({ url, name, size = 38 }) {
   );
 }
 
-// ── Photo picker — used inside MemberModal / LeaderModal.
-function PhotoPicker({ preview, onPick, onRemove, uploading }) {
+// ── PhotoPicker — now accepts onPickRaw so parent can open CropModal
+function PhotoPicker({ preview, onPickRaw, onRemove, uploading }) {
   const inputRef = useRef(null);
   return (
     <fieldset className="field">
@@ -333,7 +311,7 @@ function PhotoPicker({ preview, onPick, onRemove, uploading }) {
           ref={inputRef} type="file" accept="image/*" hidden
           onChange={e => {
             const f = e.target.files?.[0];
-            if (f) onPick(f);
+            if (f) onPickRaw(f);
             e.target.value = "";
           }}
         />
@@ -495,6 +473,9 @@ function ProceedToCloseCellModal({ open, member, membersUnder, onCancel, onConfi
   );
 }
 
+// ════════════════════════════════════════════════════════════════════
+//  MEMBER MODAL — with crop UI wired up
+// ════════════════════════════════════════════════════════════════════
 function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus, saving, existingDays=[] }) {
   const blank = () => ({
     LifegroupLocation:"", ScheduleDay:"", ScheduleTime:"",
@@ -515,21 +496,27 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
   const [photoPreview, setPhotoPreview] = useState("");
   const [photoData, setPhotoData]       = useState("");
   const [photoRemoved, setPhotoRemoved] = useState(false);
-  const [photoUploading, setPhotoUploading] = useState(false);
+  // cropRaw holds { img } while the CropModal is open
+  const [cropRaw, setCropRaw] = useState(null);
 
-  async function handlePickPhoto(file) {
+  // Step 1: file picked → open crop UI
+  async function handlePickRaw(file) {
     try {
-      setPhotoUploading(true);
-      const dataUrl = await fileToDataUrl(file);
-      setPhotoPreview(dataUrl);
-      setPhotoData(dataUrl);
-      setPhotoRemoved(false);
+      const raw = await fileToRaw(file);
+      setCropRaw(raw);
     } catch {
-      // Ignore — user can just try picking again.
-    } finally {
-      setPhotoUploading(false);
+      // ignore — user can try again
     }
   }
+
+  // Step 2: crop confirmed → compress & store
+  function handleCropConfirm(dataUrl) {
+    setPhotoPreview(dataUrl);
+    setPhotoData(dataUrl);
+    setPhotoRemoved(false);
+    setCropRaw(null);
+  }
+
   function handleRemovePhoto() {
     setPhotoPreview("");
     setPhotoData("");
@@ -542,6 +529,7 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
       setPhotoPreview(initial.PhotoURL || "");
       setPhotoData("");
       setPhotoRemoved(false);
+      setCropRaw(null);
       setForm({
         LifegroupLocation:initial.LifegroupLocation||"",
         ScheduleDay:      initial.ScheduleDay||"",
@@ -567,6 +555,7 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
       setPhotoPreview("");
       setPhotoData("");
       setPhotoRemoved(false);
+      setCropRaw(null);
       setDayMode(existingDays.length ? "pick" : "type");
     }
   }, [open, initial, defaultStatus]);
@@ -583,248 +572,275 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
   const lgLeaderTrack = TRACKS.find(t => t.key === "LGLEADER");
 
   return (
-    <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div className="modal">
-        <div className="modal-head">
-          <h2>{initial?"Edit member":"Add member"}</h2>
-          <button className="icon-btn" onClick={onClose}><X size={18}/></button>
-        </div>
-        <form className="modal-body" onSubmit={e=>{
-          e.preventDefault();
-          const photoFields = photoData
-            ? { PhotoData: photoData }
-            : photoRemoved ? { PhotoURL: "" } : {};
-          if (initial) {
-            if (!name.trim()) return;
-            onSave({ ...form, Name: name.trim(), ...photoFields });
-          } else {
-            const cleaned = names.map(n=>n.trim()).filter(Boolean);
-            if (cleaned.length === 0) return;
-            onSave({ ...form, Names: cleaned, ...photoFields });
-          }
-        }}>
-          <p className="modal-sub">Under <strong>{leaderName}</strong></p>
+    <>
+      {/* Crop modal sits on top of member modal */}
+      {cropRaw && (
+        <CropModal
+          imgEl={cropRaw.img}
+          onCrop={handleCropConfirm}
+          onCancel={() => setCropRaw(null)}
+        />
+      )}
 
-          {(initial || names.length === 1) && (
-            <PhotoPicker
-              preview={photoPreview}
-              uploading={photoUploading}
-              onPick={handlePickPhoto}
-              onRemove={handleRemovePhoto}
-            />
-          )}
-
-          {initial ? (
-            <label className="field">
-              <span>Name</span>
-              <input autoFocus type="text" value={name} required placeholder="Full name"
-                onChange={e=>setName(e.target.value)}/>
-            </label>
-          ) : (
-            <fieldset className="field">
-              <span>Name{names.length>1?"s":""}</span>
-              <div className="name-rows">
-                {names.map((n,i)=>(
-                  <div key={i} className="name-row">
-                    <input autoFocus={i===0} type="text" value={n}
-                      placeholder="Full name"
-                      onChange={e=>setNameAt(i,e.target.value)}/>
-                    {names.length>1 && (
-                      <button type="button" className="icon-btn name-row-remove"
-                        onClick={()=>removeNameAt(i)} title="Remove">
-                        <X size={14}/>
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <button type="button" className="btn-add-name" onClick={addNameRow}>
-                <Plus size={13}/> Add another name
-              </button>
-              <p className="hint">Everyone added here shares the same schedule, location, status, and tracks below.</p>
-            </fieldset>
-          )}
-
-          <fieldset className="field">
-            <span>Schedule day</span>
-            <div className="day-toggle">
-              <button type="button" className={dayMode==="pick"?"dtog dtog-on":"dtog"}
-                onClick={()=>setDayMode("pick")}>Pick a day</button>
-              <button type="button" className={dayMode==="type"?"dtog dtog-on":"dtog"}
-                onClick={()=>setDayMode("type")}>Type freely</button>
-            </div>
-            {dayMode==="pick" ? (
-              <div className="day-grid">
-                {dayOptions.map(d=>(
-                  <button key={d} type="button"
-                    className={form.ScheduleDay===d?"day-chip day-chip-on":"day-chip"}
-                    onClick={()=>set("ScheduleDay",d)}>{d}</button>
-                ))}
-              </div>
-            ) : (
-              <input type="text" value={form.ScheduleDay} placeholder="e.g. Saturday"
-                onChange={e=>set("ScheduleDay",e.target.value)}/>
-            )}
-          </fieldset>
-
-          <label className="field">
-            <span>Schedule time <span className="hint-inline">(optional)</span></span>
-            <input type="time" value={form.ScheduleTime}
-              onChange={e=>set("ScheduleTime",e.target.value)}
-              style={{fontFamily:"inherit"}}/>
-            <p className="hint">Add a time if you have multiple lifegroups on the same day.</p>
-          </label>
-
-          <label className="field">
-            <span>Lifegroup location</span>
-            <input type="text" value={form.LifegroupLocation} placeholder="Where this cell meets"
-              onChange={e=>set("LifegroupLocation",e.target.value)}/>
-          </label>
-
-          <fieldset className="field">
-            <span>Cell status</span>
-            <div className="seg-group">
-              {["Open Cell","Close Cell"].map(s=>(
-                <button key={s} type="button"
-                  className={form.Status===s?"seg seg-on":"seg"}
-                  onClick={()=>set("Status",s)}>{s}</button>
-              ))}
-            </div>
-            <p className="hint">{form.Status==="Open Cell"
-              ?"Still under discipleship — no lifegroup yet."
-              :"Now leading their own lifegroup."}</p>
-          </fieldset>
-
-          <fieldset className="field">
-            <span>Lifegroup status</span>
-            <div className="seg-group">
-              <button type="button"
-                className={form.LifegroupStatus==="Active"?"seg seg-green":"seg"}
-                onClick={()=>set("LifegroupStatus","Active")}>Active</button>
-              <button type="button"
-                className={form.LifegroupStatus==="Inactive"?"seg seg-red":"seg"}
-                onClick={()=>set("LifegroupStatus","Inactive")}>Inactive</button>
-            </div>
-          </fieldset>
-
-          <fieldset className="field">
-            <span>Track progress</span>
-            <div className="track-row">
-              {regularTracks.map(t=>{
-                const on=form[t.key]==="TRUE";
-                return (
-                  <label key={t.key} className={on?"chip chip-on":"chip"}>
-                    <input type="checkbox" checked={on}
-                      onChange={e=>set(t.key,e.target.checked?"TRUE":"FALSE")}/>
-                    {t.label}
-                  </label>
-                );
-              })}
-            </div>
-            <div className="lgl-track-section">
-              <div className="lgl-track-divider">
-                <span>Leadership Track</span>
-              </div>
-              {(() => {
-                const t = lgLeaderTrack;
-                const on = form[t.key] === "TRUE";
-                return (
-                  <label className={on?"chip chip-on chip-lgl":"chip chip-lgl"}>
-                    <input type="checkbox" checked={on}
-                      onChange={e=>set(t.key,e.target.checked?"TRUE":"FALSE")}/>
-                    <Users size={13}/> {t.label}
-                  </label>
-                );
-              })()}
-              <p className="hint">Check if this member handles their own lifegroup even while still in Open Cell.</p>
-            </div>
-          </fieldset>
-
-          <label className="field">
-            <span>Notes <span className="hint-inline">(optional)</span></span>
-            <input type="text" value={form.Notes}
-              placeholder="e.g. re-visit, follow-up, inconsistent…"
-              onChange={e=>set("Notes",e.target.value)}/>
-            <p className="hint">Shows in the Cell Leader column of the report.</p>
-          </label>
-
-          <div className="modal-foot">
-            <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn-primary" disabled={saving}>
-              {saving&&<Loader2 size={15} className="spin"/>}
-              {initial
-                ? "Save changes"
-                : (() => {
-                    const n = names.map(x=>x.trim()).filter(Boolean).length;
-                    return n>1 ? `Add ${n} members` : "Add member";
-                  })()}
-            </button>
+      <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget && !cropRaw)onClose();}}>
+        <div className="modal">
+          <div className="modal-head">
+            <h2>{initial?"Edit member":"Add member"}</h2>
+            <button className="icon-btn" onClick={onClose}><X size={18}/></button>
           </div>
-        </form>
+          <form className="modal-body" onSubmit={e=>{
+            e.preventDefault();
+            const photoFields = photoData
+              ? { PhotoData: photoData }
+              : photoRemoved ? { PhotoURL: "" } : {};
+            if (initial) {
+              if (!name.trim()) return;
+              onSave({ ...form, Name: name.trim(), ...photoFields });
+            } else {
+              const cleaned = names.map(n=>n.trim()).filter(Boolean);
+              if (cleaned.length === 0) return;
+              onSave({ ...form, Names: cleaned, ...photoFields });
+            }
+          }}>
+            <p className="modal-sub">Under <strong>{leaderName}</strong></p>
+
+            {(initial || names.length === 1) && (
+              <PhotoPicker
+                preview={photoPreview}
+                onPickRaw={handlePickRaw}
+                onRemove={handleRemovePhoto}
+                uploading={false}
+              />
+            )}
+
+            {initial ? (
+              <label className="field">
+                <span>Name</span>
+                <input autoFocus type="text" value={name} required placeholder="Full name"
+                  onChange={e=>setName(e.target.value)}/>
+              </label>
+            ) : (
+              <fieldset className="field">
+                <span>Name{names.length>1?"s":""}</span>
+                <div className="name-rows">
+                  {names.map((n,i)=>(
+                    <div key={i} className="name-row">
+                      <input autoFocus={i===0} type="text" value={n}
+                        placeholder="Full name"
+                        onChange={e=>setNameAt(i,e.target.value)}/>
+                      {names.length>1 && (
+                        <button type="button" className="icon-btn name-row-remove"
+                          onClick={()=>removeNameAt(i)} title="Remove">
+                          <X size={14}/>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button type="button" className="btn-add-name" onClick={addNameRow}>
+                  <Plus size={13}/> Add another name
+                </button>
+                <p className="hint">Everyone added here shares the same schedule, location, status, and tracks below.</p>
+              </fieldset>
+            )}
+
+            <fieldset className="field">
+              <span>Schedule day</span>
+              <div className="day-toggle">
+                <button type="button" className={dayMode==="pick"?"dtog dtog-on":"dtog"}
+                  onClick={()=>setDayMode("pick")}>Pick a day</button>
+                <button type="button" className={dayMode==="type"?"dtog dtog-on":"dtog"}
+                  onClick={()=>setDayMode("type")}>Type freely</button>
+              </div>
+              {dayMode==="pick" ? (
+                <div className="day-grid">
+                  {dayOptions.map(d=>(
+                    <button key={d} type="button"
+                      className={form.ScheduleDay===d?"day-chip day-chip-on":"day-chip"}
+                      onClick={()=>set("ScheduleDay",d)}>{d}</button>
+                  ))}
+                </div>
+              ) : (
+                <input type="text" value={form.ScheduleDay} placeholder="e.g. Saturday"
+                  onChange={e=>set("ScheduleDay",e.target.value)}/>
+              )}
+            </fieldset>
+
+            <label className="field">
+              <span>Schedule time <span className="hint-inline">(optional)</span></span>
+              <input type="time" value={form.ScheduleTime}
+                onChange={e=>set("ScheduleTime",e.target.value)}
+                style={{fontFamily:"inherit"}}/>
+              <p className="hint">Add a time if you have multiple lifegroups on the same day.</p>
+            </label>
+
+            <label className="field">
+              <span>Lifegroup location</span>
+              <input type="text" value={form.LifegroupLocation} placeholder="Where this cell meets"
+                onChange={e=>set("LifegroupLocation",e.target.value)}/>
+            </label>
+
+            <fieldset className="field">
+              <span>Cell status</span>
+              <div className="seg-group">
+                {["Open Cell","Close Cell"].map(s=>(
+                  <button key={s} type="button"
+                    className={form.Status===s?"seg seg-on":"seg"}
+                    onClick={()=>set("Status",s)}>{s}</button>
+                ))}
+              </div>
+              <p className="hint">{form.Status==="Open Cell"
+                ?"Still under discipleship — no lifegroup yet."
+                :"Now leading their own lifegroup."}</p>
+            </fieldset>
+
+            <fieldset className="field">
+              <span>Lifegroup status</span>
+              <div className="seg-group">
+                <button type="button"
+                  className={form.LifegroupStatus==="Active"?"seg seg-green":"seg"}
+                  onClick={()=>set("LifegroupStatus","Active")}>Active</button>
+                <button type="button"
+                  className={form.LifegroupStatus==="Inactive"?"seg seg-red":"seg"}
+                  onClick={()=>set("LifegroupStatus","Inactive")}>Inactive</button>
+              </div>
+            </fieldset>
+
+            <fieldset className="field">
+              <span>Track progress</span>
+              <div className="track-row">
+                {regularTracks.map(t=>{
+                  const on=form[t.key]==="TRUE";
+                  return (
+                    <label key={t.key} className={on?"chip chip-on":"chip"}>
+                      <input type="checkbox" checked={on}
+                        onChange={e=>set(t.key,e.target.checked?"TRUE":"FALSE")}/>
+                      {t.label}
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="lgl-track-section">
+                <div className="lgl-track-divider">
+                  <span>Leadership Track</span>
+                </div>
+                {(() => {
+                  const t = lgLeaderTrack;
+                  const on = form[t.key] === "TRUE";
+                  return (
+                    <label className={on?"chip chip-on chip-lgl":"chip chip-lgl"}>
+                      <input type="checkbox" checked={on}
+                        onChange={e=>set(t.key,e.target.checked?"TRUE":"FALSE")}/>
+                      <Users size={13}/> {t.label}
+                    </label>
+                  );
+                })()}
+                <p className="hint">Check if this member handles their own lifegroup even while still in Open Cell.</p>
+              </div>
+            </fieldset>
+
+            <label className="field">
+              <span>Notes <span className="hint-inline">(optional)</span></span>
+              <input type="text" value={form.Notes}
+                placeholder="e.g. re-visit, follow-up, inconsistent…"
+                onChange={e=>set("Notes",e.target.value)}/>
+              <p className="hint">Shows in the Cell Leader column of the report.</p>
+            </label>
+
+            <div className="modal-foot">
+              <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
+              <button type="submit" className="btn-primary" disabled={saving}>
+                {saving&&<Loader2 size={15} className="spin"/>}
+                {initial
+                  ? "Save changes"
+                  : (() => {
+                      const n = names.map(x=>x.trim()).filter(Boolean).length;
+                      return n>1 ? `Add ${n} members` : "Add member";
+                    })()}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
+// ════════════════════════════════════════════════════════════════════
+//  LEADER MODAL — with crop UI wired up
+// ════════════════════════════════════════════════════════════════════
 function LeaderModal({ open, onClose, onSave, gender, saving }) {
   const [name, setName] = useState("");
-  const [photoPreview, setPhotoPreview]     = useState("");
-  const [photoData, setPhotoData]           = useState("");
-  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState("");
+  const [photoData, setPhotoData]       = useState("");
+  const [cropRaw, setCropRaw]           = useState(null);
 
   useEffect(()=>{
-    if (open) { setName(""); setPhotoPreview(""); setPhotoData(""); }
+    if (open) { setName(""); setPhotoPreview(""); setPhotoData(""); setCropRaw(null); }
   },[open]);
 
-  async function handlePickPhoto(file) {
+  async function handlePickRaw(file) {
     try {
-      setPhotoUploading(true);
-      const dataUrl = await fileToDataUrl(file);
-      setPhotoPreview(dataUrl);
-      setPhotoData(dataUrl);
+      const raw = await fileToRaw(file);
+      setCropRaw(raw);
     } catch {
-      // Ignore — user can just try picking again.
-    } finally {
-      setPhotoUploading(false);
+      // ignore
     }
   }
+
+  function handleCropConfirm(dataUrl) {
+    setPhotoPreview(dataUrl);
+    setPhotoData(dataUrl);
+    setCropRaw(null);
+  }
+
   function handleRemovePhoto() { setPhotoPreview(""); setPhotoData(""); }
 
   if (!open) return null;
   return (
-    <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div className="modal modal-sm">
-        <div className="modal-head">
-          <h2>Add lifegroup leader</h2>
-          <button className="icon-btn" onClick={onClose}><X size={18}/></button>
-        </div>
-        <form className="modal-body" onSubmit={e=>{
-          e.preventDefault(); if(!name.trim()) return;
-          const member = { Name:name.trim(), Gender:gender };
-          if (photoData) member.PhotoData = photoData;
-          onSave(member);
-        }}>
-          <label className="field">
-            <span>Leader name</span>
-            <input autoFocus type="text" value={name} required placeholder="Full name"
-              onChange={e=>setName(e.target.value)}/>
-          </label>
-          <PhotoPicker
-            preview={photoPreview}
-            uploading={photoUploading}
-            onPick={handlePickPhoto}
-            onRemove={handleRemovePhoto}
-          />
-          <p className="hint">Added under {NETWORK_LEADERS[gender] || gender}.</p>
-          <div className="modal-foot">
-            <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn-primary" disabled={saving}>
-              {saving&&<Loader2 size={15} className="spin"/>}Add leader
-            </button>
+    <>
+      {cropRaw && (
+        <CropModal
+          imgEl={cropRaw.img}
+          onCrop={handleCropConfirm}
+          onCancel={() => setCropRaw(null)}
+        />
+      )}
+
+      <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget && !cropRaw)onClose();}}>
+        <div className="modal modal-sm">
+          <div className="modal-head">
+            <h2>Add lifegroup leader</h2>
+            <button className="icon-btn" onClick={onClose}><X size={18}/></button>
           </div>
-        </form>
+          <form className="modal-body" onSubmit={e=>{
+            e.preventDefault(); if(!name.trim()) return;
+            const member = { Name:name.trim(), Gender:gender };
+            if (photoData) member.PhotoData = photoData;
+            onSave(member);
+          }}>
+            <label className="field">
+              <span>Leader name</span>
+              <input autoFocus type="text" value={name} required placeholder="Full name"
+                onChange={e=>setName(e.target.value)}/>
+            </label>
+            <PhotoPicker
+              preview={photoPreview}
+              onPickRaw={handlePickRaw}
+              onRemove={handleRemovePhoto}
+              uploading={false}
+            />
+            <p className="hint">Added under {NETWORK_LEADERS[gender] || gender}.</p>
+            <div className="modal-foot">
+              <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
+              <button type="submit" className="btn-primary" disabled={saving}>
+                {saving&&<Loader2 size={15} className="spin"/>}Add leader
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -1929,7 +1945,9 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .empty-sub{font-size:14px;margin-bottom:4px;}
 
 .overlay{position:fixed;inset:0;background:rgba(31,42,36,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50;overflow:auto;}
+.crop-overlay{z-index:1100;}
 .modal{background:var(--raised);border-radius:16px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.25);}
+.crop-modal{max-width:640px;}
 .modal-sm{max-width:400px;}
 .modal-head{display:flex;align-items:center;justify-content:space-between;padding:20px 22px 12px;}
 .modal-head h2{font-size:19px;font-weight:700;}
@@ -1986,6 +2004,7 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .shell{overflow-x:hidden;}
 .main{max-width:880px;}
 .modal{width:min(460px,92vw);}
+.crop-modal{width:min(640px,92vw);}
 
 .shell[data-textsize="large"] .main{zoom:1.12;}
 .shell[data-textsize="large"] .topbar .brand-name,
