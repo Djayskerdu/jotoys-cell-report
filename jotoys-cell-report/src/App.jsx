@@ -1974,8 +1974,9 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .door-count{font-size:13px;color:var(--faint);margin-top:2px;}
 .door-go{margin-top:12px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:2px;}
 
-.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;}
-.leader-card{text-align:left;background:var(--raised);border:1px solid var(--line);border-radius:14px;padding:20px;cursor:pointer;display:flex;flex-direction:column;gap:8px;transition:transform .15s,box-shadow .15s;}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;align-items:stretch;}
+.leader-card-wrap{display:flex;}
+.leader-card{width:100%;text-align:left;background:var(--raised);border:1px solid var(--line);border-radius:14px;padding:20px;cursor:pointer;display:flex;flex-direction:column;gap:8px;transition:transform .15s,box-shadow .15s;}
 .leader-card:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(31,42,36,.08);}
 .lc-avatar-row{display:flex;align-items:center;gap:10px;}
 .lc-tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);}
@@ -1984,8 +1985,8 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .lc-pill{font-size:11px;font-weight:700;border-radius:20px;padding:3px 10px;}
 .lc-open{background:#EAF4F0;color:var(--sage-d);}
 .lc-close{background:#F0F4FA;color:var(--blue-d);}
-.lc-days{display:flex;gap:4px;flex-wrap:wrap;}
-.go-lnk{font-size:12px;font-weight:700;color:var(--sage-d);display:flex;align-items:center;margin-top:4px;}
+.lc-days{display:flex;gap:4px;flex-wrap:wrap;min-height:22px;}
+.go-lnk{font-size:12px;font-weight:700;color:var(--sage-d);display:flex;align-items:center;margin-top:auto;padding-top:4px;}
 
 .cell-split{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
 .cell-card{text-align:left;background:var(--raised);border:1px solid var(--line);border-radius:16px;padding:24px;cursor:pointer;display:flex;flex-direction:column;gap:12px;transition:transform .15s,box-shadow .15s;}
