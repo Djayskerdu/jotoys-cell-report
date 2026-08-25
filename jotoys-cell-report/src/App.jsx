@@ -906,7 +906,7 @@ function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceed
   return (
     <div className={`member-row${isClose?" member-row-close":""}${hasLGL?" member-row-lgl":""}`}>
       <div className="member-rank">{rank}</div>
-      <Avatar url={member.PhotoURL} name={member.Name} size={38}/>
+      <Avatar url={member.PhotoURL} name={member.Name} size={54}/>
       <div className="member-main">
         <div className="member-name-line">
           <span className="member-name">{member.Name}</span>
@@ -1972,7 +1972,7 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .btn-photo-remove{display:inline-flex;align-items:center;gap:4px;background:none;border:none;color:var(--danger);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;padding:4px 6px;}
 .btn-photo-remove:hover{text-decoration:underline;}
 .member-row-lgl{background:#FAF6FF;border-left:3px solid var(--lgl);}
-.member-rank{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:var(--paper);border:1px solid var(--line);font-size:11px;font-weight:700;color:var(--faint);display:flex;align-items:center;justify-content:center;margin-top:2px;}
+.member-rank{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:var(--paper);border:1px solid var(--line);font-size:11px;font-weight:700;color:var(--faint);display:flex;align-items:center;justify-content:center;margin-top:16px;}
 .member-main{display:flex;flex-direction:column;gap:8px;flex:1;min-width:0;}
 .member-name-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .member-name{font-weight:700;font-size:15px;}
