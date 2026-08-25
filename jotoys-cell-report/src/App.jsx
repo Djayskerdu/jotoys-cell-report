@@ -784,15 +784,21 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
 // ════════════════════════════════════════════════════════════════════
 //  LEADER MODAL — with crop UI wired up
 // ════════════════════════════════════════════════════════════════════
-function LeaderModal({ open, onClose, onSave, gender, saving, photoSaving }) {
+function LeaderModal({ open, onClose, onSave, gender, saving, photoSaving, initial }) {
   const [name, setName] = useState("");
   const [photoPreview, setPhotoPreview] = useState("");
   const [photoData, setPhotoData]       = useState("");
   const [cropRaw, setCropRaw]           = useState(null);
+  const isEdit = !!initial;
 
   useEffect(()=>{
-    if (open) { setName(""); setPhotoPreview(""); setPhotoData(""); setCropRaw(null); }
-  },[open]);
+    if (open) {
+      setName(initial?.Name || "");
+      setPhotoPreview(initial?.PhotoURL || "");
+      setPhotoData("");
+      setCropRaw(null);
+    }
+  },[open, initial]);
 
   async function handlePickRaw(file) {
     try {
@@ -814,7 +820,8 @@ function LeaderModal({ open, onClose, onSave, gender, saving, photoSaving }) {
   if (!open) return null;
 
   const isBusy = saving || photoSaving;
-  const btnLabel = photoSaving ? "Uploading photo…" : saving ? "Saving…" : "Add leader";
+  const btnLabel = photoSaving ? "Uploading photo…" : saving ? "Saving…" : (isEdit ? "Save changes" : "Add leader");
+  const leaderGender = gender || initial?.Gender;
 
   return (
     <>
@@ -829,13 +836,20 @@ function LeaderModal({ open, onClose, onSave, gender, saving, photoSaving }) {
       <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget && !cropRaw && !isBusy)onClose();}}>
         <div className="modal modal-sm">
           <div className="modal-head">
-            <h2>Add lifegroup leader</h2>
+            <h2>{isEdit ? "Edit leader profile" : "Add lifegroup leader"}</h2>
             <button className="icon-btn" onClick={onClose} disabled={isBusy}><X size={18}/></button>
           </div>
           <form className="modal-body" onSubmit={e=>{
             e.preventDefault(); if(!name.trim()) return;
-            const member = { Name:name.trim(), Gender:gender };
+            const member = { Name:name.trim(), Gender:leaderGender };
             if (photoData) member.PhotoData = photoData;
+            // If editing and the existing photo was removed (not replaced),
+            // explicitly clear PhotoURL — otherwise the backend leaves the
+            // old photo untouched since updateMember only writes fields
+            // present on the submitted object.
+            if (isEdit && !photoData && !photoPreview && initial?.PhotoURL) {
+              member.PhotoURL = "";
+            }
             onSave(member);
           }}>
             <label className="field">
@@ -849,7 +863,7 @@ function LeaderModal({ open, onClose, onSave, gender, saving, photoSaving }) {
               onRemove={handleRemovePhoto}
               uploading={photoSaving}
             />
-            <p className="hint">Added under {NETWORK_LEADERS[gender] || gender}.</p>
+            {!isEdit && <p className="hint">Added under {NETWORK_LEADERS[leaderGender] || leaderGender}.</p>}
             <div className="modal-foot">
               <button type="button" className="btn-ghost" onClick={onClose} disabled={isBusy}>Cancel</button>
               <button type="submit" className="btn-primary" disabled={isBusy}>
@@ -1059,7 +1073,7 @@ function HomeScreen({ members, leaders, loading, error, onRetry, onEnter }) {
   );
 }
 
-function GenderScreen({ gender, leaders, members, loading, goHome, onPickLeader, onAddLeader }) {
+function GenderScreen({ gender, leaders, members, loading, goHome, onPickLeader, onAddLeader, onEditLeader }) {
   const list = leaders
     .filter(l=>l.Gender===gender)
     .sort((a,b)=>{
@@ -1100,7 +1114,19 @@ function GenderScreen({ gender, leaders, members, loading, goHome, onPickLeader,
               return [`${d}|${t}`,{day:d,time:t}];
             })).values()].filter(s=>s.day||s.time);
             return (
-              <button key={l.ID} className="leader-card" onClick={()=>onPickLeader(l)}>
+              <div key={l.ID} className="leader-card-wrap" style={{ position:"relative" }}>
+                <button
+                  type="button"
+                  className="icon-btn lc-edit-btn"
+                  title="Edit profile photo"
+                  onClick={e=>{ e.stopPropagation(); onEditLeader(l); }}
+                  style={{ position:"absolute", top:8, right:8, zIndex:2,
+                    background:"rgba(255,255,255,0.92)", borderRadius:"50%",
+                    boxShadow:"0 1px 3px rgba(0,0,0,0.15)" }}
+                >
+                  <Pencil size={13}/>
+                </button>
+                <button className="leader-card" onClick={()=>onPickLeader(l)}>
                 <div className="lc-avatar-row">
                   <Avatar url={l.PhotoURL} name={l.Name} size={44}/>
                   <span className="lc-tag">Lifegroup Leader</span>
@@ -1122,7 +1148,8 @@ function GenderScreen({ gender, leaders, members, loading, goHome, onPickLeader,
                   </div>
                 )}
                 <span className="go-lnk">View <ChevronRight size={13}/></span>
-              </button>
+                </button>
+              </div>
             );
           })}
         </div>
@@ -1131,7 +1158,7 @@ function GenderScreen({ gender, leaders, members, loading, goHome, onPickLeader,
   );
 }
 
-function LeaderScreen({ gender, leader, members, goHome, goGender, onPickCell }) {
+function LeaderScreen({ gender, leader, members, goHome, goGender, onPickCell, onEditLeader }) {
   const acc  = gender==="Boys"?"acc-boys":"acc-girls";
   const mine = members.filter(m=>String(m.ParentID)===String(leader.ID));
   const open  = mine.filter(m=>(m.Status||"Open Cell")==="Open Cell");
@@ -1152,6 +1179,17 @@ function LeaderScreen({ gender, leader, members, goHome, goGender, onPickCell })
             <h1>{leader.Name}</h1>
             <p className="sub">{mine.length} {mine.length===1?"disciple":"disciples"} total</p>
           </div>
+          {onEditLeader && (
+            <button
+              type="button"
+              className="icon-btn"
+              title="Edit my profile photo"
+              onClick={()=>onEditLeader(leader)}
+              style={{ marginLeft:"auto" }}
+            >
+              <Pencil size={16}/>
+            </button>
+          )}
         </div>
       </div>
       <div className="cell-split">
@@ -1516,6 +1554,7 @@ export default function App() {
   const [ldrModal,  setLdrModal]  = useState(false);
   const [savingLdr, setSavingLdr] = useState(false);
   const [photoSavingLdr, setPhotoSavingLdr] = useState(false);
+  const [editingLdr, setEditingLdr] = useState(null);
   const [proceedTarget, setProceedTarget] = useState(null);
   const [proceeding,    setProceeding]    = useState(false);
   const [timothyTarget, setTimothyTarget] = useState(null);
@@ -1687,15 +1726,26 @@ export default function App() {
     if (hasPhoto) setPhotoSavingLdr(true);
     setSavingLdr(true);
     try {
-      const res = await apiPost({action:"createRoot", member:form});
-      if (hasPhoto) setPhotoSavingLdr(false);
-      const { PhotoData, ...rest } = form;
-      setMembers(prev=>[...prev,{...rest,ID:res.id,ParentID:"",Status:"Close Cell",LifegroupStatus:"Active",PhotoURL:res.photoUrl||""}]);
+      if (editingLdr) {
+        // --- UPDATE existing leader (name / profile photo) ---
+        const res = await apiPost({action:"updateMember", id:editingLdr.ID, member:form});
+        if (hasPhoto) setPhotoSavingLdr(false);
+        const { PhotoData, ...rest } = form;
+        const patch = res.photoUrl ? { ...rest, PhotoURL: res.photoUrl } : rest;
+        setMembers(prev=>prev.map(m=>String(m.ID)===String(editingLdr.ID)?{...m,...patch}:m));
+      } else {
+        // --- CREATE new leader ---
+        const res = await apiPost({action:"createRoot", member:form});
+        if (hasPhoto) setPhotoSavingLdr(false);
+        const { PhotoData, ...rest } = form;
+        setMembers(prev=>[...prev,{...rest,ID:res.id,ParentID:"",Status:"Close Cell",LifegroupStatus:"Active",PhotoURL:res.photoUrl||""}]);
+      }
       setLdrModal(false);
+      setEditingLdr(null);
     } catch(err) {
       const msg = err.name === "AbortError"
-        ? "Photo upload timed out. Try a smaller image, or add without a photo."
-        : "Couldn't add leader. Try again.";
+        ? "Photo upload timed out. Try a smaller image, or save without a photo."
+        : (editingLdr ? "Couldn't save changes. Try again." : "Couldn't add leader. Try again.");
       setError(msg);
     } finally {
       setPhotoSavingLdr(false);
@@ -1809,8 +1859,8 @@ export default function App() {
 
       <main className="main">
         {route.screen==="home"&&<HomeScreen members={members} leaders={leaders} loading={loading} error={error} onRetry={load} onEnter={goGender}/>}
-        {route.screen==="gender"&&<GenderScreen gender={route.gender} leaders={leaders} members={members} loading={loading} goHome={goHome} onPickLeader={l=>goLeader(route.gender,l)} onAddLeader={()=>setLdrModal(true)}/>}
-        {route.screen==="leader"&&<LeaderScreen gender={route.gender} leader={route.leader} members={members} goHome={goHome} goGender={()=>goGender(route.gender)} onPickCell={cell=>cell==="Open Cell"?goOpenCell(route.gender,route.leader):goCloseCell(route.gender,route.leader)}/>}
+        {route.screen==="gender"&&<GenderScreen gender={route.gender} leaders={leaders} members={members} loading={loading} goHome={goHome} onPickLeader={l=>goLeader(route.gender,l)} onAddLeader={()=>{setEditingLdr(null);setLdrModal(true);}} onEditLeader={l=>{setEditingLdr(l);setLdrModal(true);}}/>}
+        {route.screen==="leader"&&<LeaderScreen gender={route.gender} leader={route.leader} members={members} goHome={goHome} goGender={()=>goGender(route.gender)} onPickCell={cell=>cell==="Open Cell"?goOpenCell(route.gender,route.leader):goCloseCell(route.gender,route.leader)} onEditLeader={l=>{setEditingLdr(l);setLdrModal(true);}}/>}
         {route.screen==="open"&&<OpenCellScreen gender={route.gender} leader={route.leader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onViewLGLeaderCell={handleViewLGLeaderCell} onProceedToClose={handleProceedToCloseClick} onPickTimothy={handlePickTimothy}/>}
         {route.screen==="close"&&<CloseCellScreen gender={route.gender} leader={route.leader} members={members} loading={loading} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} onAdd={()=>{setEditing(null);setModalOpen(true);}} onEdit={m=>{setEditing(m);setModalOpen(true);}} onDelete={m=>setDelTarget(m)} onPickSubLeader={sub=>goSubLeader(route.gender,route.leader,sub)}/>}
         {route.screen==="subleader"&&<SubLeaderScreen gender={route.gender} leader={route.leader} subLeader={route.subLeader} members={members} goHome={goHome} goGender={()=>goGender(route.gender)} goLeader={()=>goLeader(route.gender,route.leader)} goCloseCell={()=>goCloseCell(route.gender,route.leader)} onPickCell={cell=>cell==="Open Cell"?goSubOpen(route.gender,route.leader,route.subLeader):goSubClose(route.gender,route.leader,route.subLeader)}/>}
@@ -1832,11 +1882,12 @@ export default function App() {
       />
       <LeaderModal
         open={ldrModal}
-        onClose={()=>{ if(!savingLdr && !photoSavingLdr) setLdrModal(false); }}
+        onClose={()=>{ if(!savingLdr && !photoSavingLdr){ setLdrModal(false); setEditingLdr(null); } }}
         onSave={handleSaveLeader}
         gender={route.gender}
         saving={savingLdr}
         photoSaving={photoSavingLdr}
+        initial={editingLdr}
       />
       <ConfirmDelete open={!!delTarget} name={delTarget?.Name} onCancel={()=>setDelTarget(null)} onConfirm={handleDelete} deleting={deleting}/>
       <ProceedToCloseCellModal
