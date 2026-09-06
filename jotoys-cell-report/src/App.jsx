@@ -510,6 +510,7 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
     LifegroupLocation:"", ScheduleDay:"", ScheduleTime:"",
     Status: defaultStatus||"Open Cell", LifegroupStatus:"Active",
     Notes:"",
+    Address:"", Birthday:"", CivilStatus:"",
     SUYNL:"FALSE", LIFECLASS:"FALSE",
     ENCOUNTER:"FALSE", WATERBAPTISM:"FALSE",
     SOL1:"FALSE", SOL2:"FALSE",
@@ -563,6 +564,9 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
         Status:           initial.Status||defaultStatus||"Open Cell",
         LifegroupStatus:  initial.LifegroupStatus||"",
         Notes:            initial.Notes||"",
+        Address:          initial.Address||"",
+        Birthday:         initial.Birthday||"",
+        CivilStatus:      initial.CivilStatus||"",
         SUYNL:            toBool(initial.SUYNL)        ?"TRUE":"FALSE",
         LIFECLASS:        toBool(initial.LIFECLASS)    ?"TRUE":"FALSE",
         ENCOUNTER:        toBool(initial.ENCOUNTER)    ?"TRUE":"FALSE",
@@ -630,11 +634,11 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
               : photoRemoved ? { PhotoURL: "" } : {};
             if (initial) {
               if (!name.trim()) return;
-              onSave({ ...form, Name: name.trim(), ...photoFields });
+              onSave({ ...form, Name: name.trim(), Age: computeAge(form.Birthday) ?? "", ...photoFields });
             } else {
               const cleaned = names.map(n=>n.trim()).filter(Boolean);
               if (cleaned.length === 0) return;
-              onSave({ ...form, Names: cleaned, ...photoFields });
+              onSave({ ...form, Names: cleaned, Age: computeAge(form.Birthday) ?? "", ...photoFields });
             }
           }}>
             <p className="modal-sub">Under <strong>{leaderName}</strong></p>
@@ -677,6 +681,41 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
                 </button>
                 <p className="hint">Everyone added here shares the same schedule, location, status, and tracks below.</p>
               </fieldset>
+            )}
+
+            {(initial || names.length === 1) && (
+              <>
+                <label className="field">
+                  <span>Address <span className="hint-inline">(optional)</span></span>
+                  <input type="text" value={form.Address} placeholder="House no., street, barangay, city"
+                    onChange={e=>set("Address",e.target.value)}/>
+                </label>
+
+                <div className="field-row">
+                  <label className="field">
+                    <span>Birthday <span className="hint-inline">(optional)</span></span>
+                    <input type="date" value={form.Birthday}
+                      onChange={e=>set("Birthday",e.target.value)}
+                      style={{fontFamily:"inherit"}}/>
+                  </label>
+                  <label className="field">
+                    <span>Age</span>
+                    <input type="text" value={computeAge(form.Birthday) ?? ""} readOnly
+                      placeholder="Auto from birthday" className="field-readonly"/>
+                  </label>
+                </div>
+
+                <fieldset className="field">
+                  <span>Status</span>
+                  <div className="seg-group">
+                    {["Single","Married","Widowed"].map(s=>(
+                      <button key={s} type="button"
+                        className={form.CivilStatus===s?"seg seg-on":"seg"}
+                        onClick={()=>set("CivilStatus",s)}>{s}</button>
+                    ))}
+                  </div>
+                </fieldset>
+              </>
             )}
 
             <fieldset className="field">
@@ -924,6 +963,24 @@ function formatTime(t) {
   return `${hr}:${String(m).padStart(2,"0")} ${ampm}`;
 }
 
+function computeAge(birthday) {
+  if (!birthday) return null;
+  const b = new Date(birthday);
+  if (isNaN(b.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - b.getFullYear();
+  const monthDiff = now.getMonth() - b.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < b.getDate())) age--;
+  return age >= 0 ? age : null;
+}
+
+function formatBirthday(birthday) {
+  if (!birthday) return "";
+  const b = new Date(birthday);
+  if (isNaN(b.getTime())) return birthday;
+  return b.toLocaleDateString(undefined, { year:"numeric", month:"short", day:"numeric" });
+}
+
 function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceedToClose, rank, isTimothy }) {
   const [showPhoto, setShowPhoto] = useState(false);
   const isClose = member.Status === "Close Cell";
@@ -961,6 +1018,22 @@ function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceed
             <span className="member-loc"><MapPin size={11}/>{member.LifegroupLocation}</span>
           )}
         </div>
+        {(member.Address || member.Birthday || member.CivilStatus) && (
+          <div className="member-info-line">
+            {member.Birthday && (
+              <span className="member-info-item">
+                <Calendar size={11}/>{formatBirthday(member.Birthday)}
+                {computeAge(member.Birthday)!=null && ` (${computeAge(member.Birthday)} yrs old)`}
+              </span>
+            )}
+            {member.CivilStatus && (
+              <span className="member-info-item">{member.CivilStatus}</span>
+            )}
+            {member.Address && (
+              <span className="member-info-item member-info-address"><MapPin size={11}/>{member.Address}</span>
+            )}
+          </div>
+        )}
         <TrackList member={member}/>
         {hasLGL && !isClose && (
           <div className="lgl-action-row">
@@ -2079,6 +2152,9 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .member-name-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .member-name{font-weight:700;font-size:15px;}
 .member-loc{display:flex;align-items:center;gap:3px;font-size:12px;color:var(--faint);}
+.member-info-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--faint);margin-top:2px;}
+.member-info-item{display:flex;align-items:center;gap:3px;}
+.member-info-address{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .member-side{display:flex;align-items:center;gap:8px;flex-shrink:0;}
 
 .lgl-action-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-top:4px;}
@@ -2161,6 +2237,9 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .modal-sub{font-size:13px;color:var(--faint);margin-top:-8px;}
 .modal-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:6px;}
 .field{display:flex;flex-direction:column;gap:6px;border:none;}
+.field-row{display:flex;gap:12px;}
+.field-row .field{flex:1;min-width:0;}
+.field-readonly{background:#F0EEE7;color:var(--faint);cursor:default;}
 .field>span{font-size:13px;font-weight:700;}
 .field input[type=text],.field input[type=time]{color-scheme:light;font-size:14px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);font-family:inherit;}
 .field input[type=text]:focus,.field input[type=time]:focus{outline:2px solid var(--sage);outline-offset:1px;}
