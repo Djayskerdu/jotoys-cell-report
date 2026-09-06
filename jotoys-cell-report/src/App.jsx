@@ -265,7 +265,6 @@ function TrackList({ member }) {
   if (done.length === 0) {
     return <span className="track-list-empty">No tracks yet</span>;
   }
-  const hasEquipping = done.some(t => ["LIFECLASS","SOL1","SOL2","SOL3"].includes(t.key));
   return (
     <div className="track-pills">
       {done.map(t => (
@@ -273,9 +272,6 @@ function TrackList({ member }) {
           {t.label}
         </span>
       ))}
-      {hasEquipping && member.EquippingBatch && (
-        <span className="track-pill track-pill-batch">Batch {member.EquippingBatch}</span>
-      )}
     </div>
   );
 }
@@ -2278,7 +2274,6 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .track-pills{display:flex;flex-wrap:wrap;gap:5px;}
 .track-pill{font-size:11px;font-weight:700;color:var(--ink);background:#FBF0DC;border:1px solid var(--gold);border-radius:6px;padding:3px 8px;line-height:1.2;}
 .track-pill-lgl{background:#F2EEF9;border-color:#C9B8E8;color:var(--lgl-d);}
-.track-pill-batch{background:#fff;border-style:dashed;color:var(--faint);font-weight:600;}
 .track-list-empty{font-size:12px;color:var(--faint);font-weight:400;font-style:italic;}
 
 .subldr-list{display:flex;flex-direction:column;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;}
