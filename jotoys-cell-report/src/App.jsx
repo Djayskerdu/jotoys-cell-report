@@ -293,6 +293,21 @@ function Avatar({ url, name, size = 38 }) {
   );
 }
 
+function PhotoViewModal({ url, name, onClose }) {
+  if (!url) return null;
+  return (
+    <div className="overlay photo-view-overlay" onMouseDown={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="photo-view-inner">
+        <button type="button" className="icon-btn photo-view-close" onClick={onClose} title="Close">
+          <X size={18}/>
+        </button>
+        <img className="photo-view-img" src={url} alt={name || "Profile photo"} />
+        {name && <span className="photo-view-name">{name}</span>}
+      </div>
+    </div>
+  );
+}
+
 function PhotoPicker({ preview, onPickRaw, onRemove, uploading }) {
   const inputRef = useRef(null);
   return (
@@ -910,6 +925,7 @@ function formatTime(t) {
 }
 
 function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceedToClose, rank, isTimothy }) {
+  const [showPhoto, setShowPhoto] = useState(false);
   const isClose = member.Status === "Close Cell";
   const hasLGL = isLGLeader(member);
   const hasTimothy = isTimothy;
@@ -919,8 +935,20 @@ function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceed
 
   return (
     <div className={`member-row${isClose?" member-row-close":""}${hasLGL?" member-row-lgl":""}`}>
+      {showPhoto && (
+        <PhotoViewModal url={member.PhotoURL} name={member.Name} onClose={()=>setShowPhoto(false)}/>
+      )}
       <div className="member-rank">{rank}</div>
-      <Avatar url={member.PhotoURL} name={member.Name} size={54}/>
+      <span
+        className="lc-avatar-clickable"
+        role="button"
+        tabIndex={0}
+        title="View profile photo"
+        onClick={()=>{ if (member.PhotoURL) setShowPhoto(true); }}
+        onKeyDown={e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); if (member.PhotoURL) setShowPhoto(true); } }}
+      >
+        <Avatar url={member.PhotoURL} name={member.Name} size={54}/>
+      </span>
       <div className="member-main">
         <div className="member-name-line">
           <span className="member-name">{member.Name}</span>
@@ -1046,8 +1074,8 @@ function HomeScreen({ members, leaders, loading, error, onRetry, onEnter }) {
       <div className="stats">
         {[
           {n: allNonRoot.length, l:"Total disciples"},
-          {n: leaders.length,    l:"Lifegroup leaders"},
-          {n: closed,            l:"Leading their own cell"},
+          {n: leaders.length,    l:"CLOSE CELL"},
+          {n: closed,            l:"LIFEGROUP LEADERS"},
         ].map(s=>(
           <div key={s.l} className="stat">
             <span className="stat-n">{loading?"—":s.n}</span>
@@ -1074,6 +1102,7 @@ function HomeScreen({ members, leaders, loading, error, onRetry, onEnter }) {
 }
 
 function GenderScreen({ gender, leaders, members, loading, goHome, onPickLeader, onAddLeader, onEditLeader }) {
+  const [viewingPhoto, setViewingPhoto] = useState(null);
   const list = leaders
     .filter(l=>l.Gender===gender)
     .sort((a,b)=>{
@@ -1085,6 +1114,7 @@ function GenderScreen({ gender, leaders, members, loading, goHome, onPickLeader,
   const networkLeader = NETWORK_LEADERS[gender] || gender;
   return (
     <div className={`screen ${acc}`}>
+      <PhotoViewModal url={viewingPhoto?.url} name={viewingPhoto?.name} onClose={()=>setViewingPhoto(null)}/>
       <Breadcrumb crumbs={[{label:"Home",onClick:goHome}]} current={gender}/>
       <div className="screen-head">
         <div>
@@ -1128,7 +1158,16 @@ function GenderScreen({ gender, leaders, members, loading, goHome, onPickLeader,
                 </button>
                 <button className="leader-card" onClick={()=>onPickLeader(l)}>
                 <div className="lc-avatar-row">
-                  <Avatar url={l.PhotoURL} name={l.Name} size={44}/>
+                  <span
+                    className="lc-avatar-clickable"
+                    role="button"
+                    tabIndex={0}
+                    title="View profile photo"
+                    onClick={e=>{ e.stopPropagation(); if (l.PhotoURL) setViewingPhoto({ url: l.PhotoURL, name: l.Name }); }}
+                    onKeyDown={e=>{ if(e.key==="Enter"||e.key===" "){ e.stopPropagation(); e.preventDefault(); if (l.PhotoURL) setViewingPhoto({ url: l.PhotoURL, name: l.Name }); } }}
+                  >
+                    <Avatar url={l.PhotoURL} name={l.Name} size={44}/>
+                  </span>
                   <span className="lc-tag">Lifegroup Leader</span>
                 </div>
                 <span className="lc-name">{l.Name}</span>
@@ -2014,6 +2053,17 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .member-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;background:var(--raised);padding:14px 18px;}
 
 .avatar{border-radius:50%;object-fit:cover;flex-shrink:0;background:#EFEAE0;}
+.lc-avatar-clickable{display:inline-flex;border-radius:50%;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease;}
+.lc-avatar-clickable:hover{transform:scale(1.06);box-shadow:0 0 0 3px rgba(0,0,0,0.06);}
+.lc-avatar-clickable:active{transform:scale(0.97);}
+.lc-avatar-clickable:focus-visible{outline:2px solid var(--accent,#7a8f6e);outline-offset:2px;}
+.photo-view-overlay{background:rgba(0,0,0,.82);z-index:1200;}
+.photo-view-inner{position:relative;display:flex;flex-direction:column;align-items:center;gap:16px;max-width:92vw;}
+.photo-view-img{width:min(78vw,420px);height:min(78vw,420px);border-radius:50%;object-fit:cover;box-shadow:0 10px 40px rgba(0,0,0,.5);background:#EFEAE0;}
+.photo-view-name{color:#fff;font-size:16px;font-weight:600;text-align:center;}
+.photo-view-close{position:absolute;top:-44px;right:0;background:rgba(255,255,255,.15);color:#fff;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;}
+.photo-view-close:hover{background:rgba(255,255,255,.28);}
+@media (max-width:480px){.photo-view-close{top:-40px;}}
 .avatar-fallback{display:flex;align-items:center;justify-content:center;color:var(--faint);}
 
 .photo-picker{display:flex;align-items:center;gap:12px;}
