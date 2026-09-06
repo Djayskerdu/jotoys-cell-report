@@ -1243,7 +1243,7 @@ function HomeScreen({ members, leaders, loading, error, onRetry, onEnter }) {
       )}
       <div className="stats">
         {[
-          {n: allNonRoot.length, l:"Total disciples"},
+          {n: allNonRoot.length, l:"TOTAL MEMBERS"},
           {n: leaders.length,    l:"CLOSE CELL"},
           {n: closed,            l:"LIFEGROUP LEADERS"},
         ].map(s=>(
