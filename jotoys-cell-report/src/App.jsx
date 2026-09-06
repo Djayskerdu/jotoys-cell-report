@@ -3,7 +3,7 @@ import {
   Users, UserCircle2, Plus, X, Pencil, Trash2, MapPin,
   Loader2, RefreshCw, AlertCircle, ChevronRight, UserPlus,
   Home, Circle, Calendar, Clock, FileText, ArrowUpRight, ZoomIn,
-  Camera, Check, Move
+  Camera, Check, Move, Eye
 } from "lucide-react";
 
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxQ0Lgp_NhBJgWZHbxA5q4Php-F5VaqMrfw270PBDHc-65fBmg-pOkig5m32PQYyTutig/exec";
@@ -303,6 +303,71 @@ function PhotoViewModal({ url, name, onClose }) {
         </button>
         <img className="photo-view-img" src={url} alt={name || "Profile photo"} />
         {name && <span className="photo-view-name">{name}</span>}
+      </div>
+    </div>
+  );
+}
+
+function MemberDetailModal({ member, allMembers, isTimothy, onClose, onEdit }) {
+  if (!member) return null;
+  const age = computeAge(member.Birthday);
+  const [showPhoto, setShowPhoto] = useState(false);
+
+  return (
+    <div className="overlay" onMouseDown={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      {showPhoto && (
+        <PhotoViewModal url={member.PhotoURL} name={member.Name} onClose={()=>setShowPhoto(false)}/>
+      )}
+      <div className="modal modal-sm member-detail-modal">
+        <div className="modal-head">
+          <h2>Member details</h2>
+          <button className="icon-btn" onClick={onClose}><X size={18}/></button>
+        </div>
+        <div className="modal-body">
+          <div className="md-top md-top-center">
+            <span
+              className="lc-avatar-clickable"
+              role="button"
+              tabIndex={0}
+              title="View profile photo"
+              onClick={()=>{ if (member.PhotoURL) setShowPhoto(true); }}
+              onKeyDown={e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); if (member.PhotoURL) setShowPhoto(true); } }}
+            >
+              <Avatar url={member.PhotoURL} name={member.Name} size={84}/>
+            </span>
+            <span className="md-name">{member.Name}</span>
+          </div>
+
+          <div className="md-grid">
+            <div className="md-field md-field-wide">
+              <span className="md-label">Full name</span>
+              <span className="md-value">{member.Name || "—"}</span>
+            </div>
+            <div className="md-field md-field-wide">
+              <span className="md-label">Address</span>
+              <span className="md-value">{member.Address || "—"}</span>
+            </div>
+            <div className="md-field">
+              <span className="md-label">Birthday</span>
+              <span className="md-value">{member.Birthday ? formatBirthday(member.Birthday) : "—"}</span>
+            </div>
+            <div className="md-field">
+              <span className="md-label">Age</span>
+              <span className="md-value">{age!=null ? `${age} yrs old` : "—"}</span>
+            </div>
+            <div className="md-field md-field-wide">
+              <span className="md-label">Status</span>
+              <span className="md-value">{member.CivilStatus || "—"}</span>
+            </div>
+          </div>
+
+          <div className="modal-foot">
+            <button className="btn-ghost" onClick={onClose}>Close</button>
+            <button className="btn-primary" onClick={()=>{ onClose(); onEdit(member); }}>
+              <Pencil size={14}/> Edit member
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -983,6 +1048,7 @@ function formatBirthday(birthday) {
 
 function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceedToClose, rank, isTimothy }) {
   const [showPhoto, setShowPhoto] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const isClose = member.Status === "Close Cell";
   const hasLGL = isLGLeader(member);
   const hasTimothy = isTimothy;
@@ -994,6 +1060,10 @@ function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceed
     <div className={`member-row${isClose?" member-row-close":""}${hasLGL?" member-row-lgl":""}`}>
       {showPhoto && (
         <PhotoViewModal url={member.PhotoURL} name={member.Name} onClose={()=>setShowPhoto(false)}/>
+      )}
+      {showDetails && (
+        <MemberDetailModal member={member} allMembers={allMembers} isTimothy={isTimothy}
+          onClose={()=>setShowDetails(false)} onEdit={onEdit}/>
       )}
       <div className="member-rank">{rank}</div>
       <span
@@ -1050,6 +1120,7 @@ function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceed
         )}
       </div>
       <div className="member-side">
+        <button className="icon-btn" title="View details" onClick={()=>setShowDetails(true)}><Eye size={14}/></button>
         <button className="icon-btn" onClick={()=>onEdit(member)}><Pencil size={14}/></button>
         <button className="icon-btn icon-btn-danger" onClick={()=>onDelete(member)}><Trash2 size={14}/></button>
       </div>
@@ -2197,6 +2268,19 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .badge-green{background:#E6F4ED;color:var(--green);}
 .badge-red{background:#F8E9E5;color:var(--danger);}
 .badge-close{background:#EEF4FF;color:var(--blue-d);}
+.badge-open{background:#EAF6EC;color:#3A7D44;border-radius:20px;font-size:11px;font-weight:700;padding:3px 9px;}
+.member-detail-modal .modal-body{gap:16px;}
+.md-top{display:flex;align-items:center;gap:14px;}
+.md-top-center{flex-direction:column;text-align:center;gap:10px;}
+.md-top-info{display:flex;flex-direction:column;gap:6px;min-width:0;}
+.md-name{font-size:18px;font-weight:700;}
+.md-badges{display:flex;flex-wrap:wrap;gap:6px;}
+.md-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;}
+.md-field{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.md-field-wide{grid-column:1 / -1;}
+.md-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--faint);}
+.md-value{font-size:14px;color:var(--ink);word-break:break-word;}
+.md-tracks{border-top:1px solid rgba(31,42,36,0.1);padding-top:14px;}
 .badge-notes{background:#FEF3C7;color:var(--amber);}
 .badge-lgl{background:#F2EEF9;color:var(--lgl-d);}
 .badge-timothy{background:#FCF3DE;color:var(--tim-d);}
