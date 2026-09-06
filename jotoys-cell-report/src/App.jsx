@@ -344,6 +344,10 @@ function MemberDetailModal({ member, allMembers, isTimothy, onClose, onEdit }) {
               <span className="md-value">{member.Name || "—"}</span>
             </div>
             <div className="md-field md-field-wide">
+              <span className="md-label">Contact no.</span>
+              <span className="md-value">{member.ContactNo || "—"}</span>
+            </div>
+            <div className="md-field md-field-wide">
               <span className="md-label">Address</span>
               <span className="md-value">{member.Address || "—"}</span>
             </div>
@@ -575,7 +579,7 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
     LifegroupLocation:"", ScheduleDay:"", ScheduleTime:"",
     Status: defaultStatus||"Open Cell", LifegroupStatus:"Active",
     Notes:"",
-    Address:"", Birthday:"", CivilStatus:"",
+    Address:"", Birthday:"", CivilStatus:"", ContactNo:"",
     SUYNL:"FALSE", LIFECLASS:"FALSE",
     ENCOUNTER:"FALSE", WATERBAPTISM:"FALSE",
     SOL1:"FALSE", SOL2:"FALSE",
@@ -632,6 +636,7 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
         Address:          initial.Address||"",
         Birthday:         initial.Birthday||"",
         CivilStatus:      initial.CivilStatus||"",
+        ContactNo:        initial.ContactNo||"",
         SUYNL:            toBool(initial.SUYNL)        ?"TRUE":"FALSE",
         LIFECLASS:        toBool(initial.LIFECLASS)    ?"TRUE":"FALSE",
         ENCOUNTER:        toBool(initial.ENCOUNTER)    ?"TRUE":"FALSE",
@@ -750,6 +755,12 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
 
             {(initial || names.length === 1) && (
               <>
+                <label className="field">
+                  <span>Contact no. <span className="hint-inline">(optional)</span></span>
+                  <input type="tel" value={form.ContactNo} placeholder="e.g. 0912 345 6789"
+                    onChange={e=>set("ContactNo",e.target.value)}/>
+                </label>
+
                 <label className="field">
                   <span>Address <span className="hint-inline">(optional)</span></span>
                   <input type="text" value={form.Address} placeholder="House no., street, barangay, city"
@@ -1088,22 +1099,6 @@ function MemberRow({ member, allMembers, onEdit, onDelete, onViewCell, onProceed
             <span className="member-loc"><MapPin size={11}/>{member.LifegroupLocation}</span>
           )}
         </div>
-        {(member.Address || member.Birthday || member.CivilStatus) && (
-          <div className="member-info-line">
-            {member.Birthday && (
-              <span className="member-info-item">
-                <Calendar size={11}/>{formatBirthday(member.Birthday)}
-                {computeAge(member.Birthday)!=null && ` (${computeAge(member.Birthday)} yrs old)`}
-              </span>
-            )}
-            {member.CivilStatus && (
-              <span className="member-info-item">{member.CivilStatus}</span>
-            )}
-            {member.Address && (
-              <span className="member-info-item member-info-address"><MapPin size={11}/>{member.Address}</span>
-            )}
-          </div>
-        )}
         <TrackList member={member}/>
         {hasLGL && !isClose && (
           <div className="lgl-action-row">
