@@ -328,15 +328,23 @@ function MemberDetailModal({ member, allMembers, isTimothy, onClose, onEdit }) {
         </div>
         <div className="modal-body">
           <div className="md-top md-top-center">
-            <span
-              className="lc-avatar-clickable"
-              role="button"
-              tabIndex={0}
-              title="View profile photo"
-              onClick={()=>{ if (member.PhotoURL) setShowPhoto(true); }}
-              onKeyDown={e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); if (member.PhotoURL) setShowPhoto(true); } }}
-            >
-              <Avatar url={member.PhotoURL} name={member.Name} size={84}/>
+            <span className="md-avatar-wrap">
+              <span
+                className="lc-avatar-clickable"
+                role="button"
+                tabIndex={0}
+                title="View profile photo"
+                onClick={()=>{ if (member.PhotoURL) setShowPhoto(true); }}
+                onKeyDown={e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); if (member.PhotoURL) setShowPhoto(true); } }}
+              >
+                <Avatar url={member.PhotoURL} name={member.Name} size={84}/>
+              </span>
+              {hasEquipping && member.EquippingBatch && (
+                <span className="md-batch-badge">
+                  <span className="md-batch-badge-label">Batch</span>
+                  <span className="md-batch-badge-no">{member.EquippingBatch}</span>
+                </span>
+              )}
             </span>
             <span className="md-name">{member.Name}</span>
           </div>
@@ -366,12 +374,6 @@ function MemberDetailModal({ member, allMembers, isTimothy, onClose, onEdit }) {
               <span className="md-label">Status</span>
               <span className="md-value">{member.CivilStatus || "—"}</span>
             </div>
-            {hasEquipping && (
-              <div className="md-field md-field-wide">
-                <span className="md-label">Equipping batch</span>
-                <span className="md-value">{member.EquippingBatch || "—"}</span>
-              </div>
-            )}
           </div>
 
           <div className="modal-foot">
@@ -2297,6 +2299,10 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .md-top{display:flex;align-items:center;gap:14px;}
 .md-top-center{flex-direction:column;text-align:center;gap:10px;}
 .md-top-info{display:flex;flex-direction:column;gap:6px;min-width:0;}
+.md-avatar-wrap{position:relative;display:inline-flex;}
+.md-batch-badge{position:absolute;top:50%;left:100%;transform:translate(6px,-50%);display:flex;flex-direction:column;align-items:center;justify-content:center;background:#FBF0DC;border:1.5px solid var(--gold);border-radius:12px;padding:4px 10px;min-width:44px;box-shadow:0 1px 3px rgba(0,0,0,.08);}
+.md-batch-badge-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--faint);line-height:1;}
+.md-batch-badge-no{font-size:20px;font-weight:800;color:var(--ink);line-height:1.2;}
 .md-name{font-size:18px;font-weight:700;}
 .md-badges{display:flex;flex-wrap:wrap;gap:6px;}
 .md-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;}
