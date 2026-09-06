@@ -268,7 +268,10 @@ function TrackList({ member }) {
   return (
     <div className="track-pills">
       {done.map(t => (
-        <span key={t.key} className={`track-pill${t.key==="LGLEADER"?" track-pill-lgl":""}`}>{t.label}</span>
+        <span key={t.key} className={`track-pill${t.key==="LGLEADER"?" track-pill-lgl":""}`}>
+          {t.label}
+          {["LIFECLASS","SOL1","SOL2","SOL3"].includes(t.key) && member.EquippingBatch && ` · Batch ${member.EquippingBatch}`}
+        </span>
       ))}
     </div>
   );
@@ -580,7 +583,7 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
     Status: defaultStatus||"Open Cell", LifegroupStatus:"Active",
     Notes:"",
     Address:"", Birthday:"", CivilStatus:"", ContactNo:"",
-    SUYNL:"FALSE", LIFECLASS:"FALSE",
+    SUYNL:"FALSE", LIFECLASS:"FALSE", EquippingBatch:"",
     ENCOUNTER:"FALSE", WATERBAPTISM:"FALSE",
     SOL1:"FALSE", SOL2:"FALSE",
     REENCOUNTER:"FALSE", SOL3:"FALSE",
@@ -639,6 +642,7 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
         ContactNo:        initial.ContactNo||"",
         SUYNL:            toBool(initial.SUYNL)        ?"TRUE":"FALSE",
         LIFECLASS:        toBool(initial.LIFECLASS)    ?"TRUE":"FALSE",
+        EquippingBatch:   initial.EquippingBatch||"",
         ENCOUNTER:        toBool(initial.ENCOUNTER)    ?"TRUE":"FALSE",
         WATERBAPTISM:     toBool(initial.WATERBAPTISM) ?"TRUE":"FALSE",
         SOL1:             toBool(initial.SOL1)         ?"TRUE":"FALSE",
@@ -861,15 +865,34 @@ function MemberModal({ open, onClose, onSave, initial, leaderName, defaultStatus
               <div className="track-row">
                 {regularTracks.map(t=>{
                   const on=form[t.key]==="TRUE";
+                  const EQUIPPING_KEYS = ["LIFECLASS","SOL1","SOL2","SOL3"];
                   return (
                     <label key={t.key} className={on?"chip chip-on":"chip"}>
                       <input type="checkbox" checked={on}
-                        onChange={e=>set(t.key,e.target.checked?"TRUE":"FALSE")}/>
+                        onChange={e=>{
+                          const checked = e.target.checked;
+                          set(t.key,checked?"TRUE":"FALSE");
+                          if (EQUIPPING_KEYS.includes(t.key) && !checked) {
+                            const stillAnyOn = EQUIPPING_KEYS
+                              .filter(k=>k!==t.key)
+                              .some(k=>form[k]==="TRUE");
+                            if (!stillAnyOn) set("EquippingBatch","");
+                          }
+                        }}/>
                       {t.label}
                     </label>
                   );
                 })}
               </div>
+              {["LIFECLASS","SOL1","SOL2","SOL3"].some(k=>form[k]==="TRUE") && (
+                <label className="field lifeclass-batch-field">
+                  <span>Equipping batch</span>
+                  <input type="text" value={form.EquippingBatch}
+                    placeholder="e.g. Batch 5"
+                    onChange={e=>set("EquippingBatch",e.target.value)}/>
+                  <p className="hint">Which batch is this member going through — Life Class → SOL 1 → SOL 2 → SOL 3?</p>
+                </label>
+              )}
               <div className="lgl-track-section">
                 <div className="lgl-track-divider">
                   <span>Leadership Track</span>
@@ -2355,6 +2378,7 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .chip-lgl input{accent-color:var(--lgl);}
 
 .lgl-track-section{display:flex;flex-direction:column;gap:8px;margin-top:8px;padding-top:12px;border-top:1px solid var(--line);}
+.lifeclass-batch-field{margin-top:10px;padding:10px 12px;background:#FBF3E4;border:1px solid #F0DCAE;border-radius:10px;}
 .lgl-track-divider{display:flex;align-items:center;gap:8px;}
 .lgl-track-divider span{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--lgl-d);}
 
