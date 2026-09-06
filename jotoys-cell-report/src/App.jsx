@@ -2355,8 +2355,8 @@ body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMac
 .field-row .field{flex:1;min-width:0;}
 .field-readonly{background:#F0EEE7;color:var(--faint);cursor:default;}
 .field>span{font-size:13px;font-weight:700;}
-.field input[type=text],.field input[type=time]{color-scheme:light;font-size:14px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);font-family:inherit;}
-.field input[type=text]:focus,.field input[type=time]:focus{outline:2px solid var(--sage);outline-offset:1px;}
+.field input[type=text],.field input[type=time],.field input[type=tel],.field input[type=date],.field input[type=email],.field input[type=number]{color-scheme:light;font-size:14px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);font-family:inherit;}
+.field input[type=text]:focus,.field input[type=time]:focus,.field input[type=tel]:focus,.field input[type=date]:focus,.field input[type=email]:focus,.field input[type=number]:focus{outline:2px solid var(--sage);outline-offset:1px;}
 .hint{font-size:12px;color:var(--faint);}
 .hint-inline{font-size:12px;color:var(--faint);font-weight:400;}
 
