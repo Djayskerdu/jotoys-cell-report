@@ -1271,15 +1271,18 @@ function lgLabel(n) { return `${n} lifegroup${n !== 1 ? "s" : ""}`; }
 
 // Total disciples under one network (everyone below the root leaders of that gender,
 // at any depth). Same rule as the "TOTAL DISCIPLES" figure, just scoped per network.
-function countNetworkDisciples(gender, members) {
+function getNetworkDisciples(gender, members) {
   const roots = members.filter(m => (!m.ParentID || String(m.ParentID).trim() === "") && m.Gender === gender);
-  let count = 0;
+  const result = [];
   const queue = [...roots];
   while (queue.length) {
     const node = queue.shift();
-    members.filter(m => String(m.ParentID) === String(node.ID)).forEach(c => { count++; queue.push(c); });
+    members.filter(m => String(m.ParentID) === String(node.ID)).forEach(c => { result.push(c); queue.push(c); });
   }
-  return count;
+  return result;
+}
+function countNetworkDisciples(gender, members) {
+  return getNetworkDisciples(gender, members).length;
 }
 
 function HomeScreen({ members, leaders, loading, error, onRetry, onEnter }) {
@@ -1348,8 +1351,11 @@ function GenderScreen({ gender, leaders, members, loading, goHome, onPickLeader,
   const networkLeader = NETWORK_LEADERS[gender] || genderLabel(gender);
   const lgList = list.filter(l=>!isOwnNetworkLeaderRow(l));
   const leaderCount = lgList.length;
-  const inactiveCount = lgList.filter(l=>l.LifegroupStatus==="Inactive").length;
-  const activeCount = leaderCount - inactiveCount;
+  // Active / Inactive counts cover EVERY disciple in this network (all levels),
+  // not just the lifegroup leaders. Blank status counts as Active.
+  const networkDisciples = getNetworkDisciples(gender, members);
+  const inactiveCount = networkDisciples.filter(m=>m.LifegroupStatus==="Inactive").length;
+  const activeCount = networkDisciples.length - inactiveCount;
   return (
     <div className={`screen ${acc}`}>
       <PhotoViewModal url={viewingPhoto?.url} name={viewingPhoto?.name} onClose={()=>setViewingPhoto(null)}/>
